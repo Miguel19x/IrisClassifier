@@ -17,6 +17,10 @@ This document provides a comprehensive performance tuning plan for the IrisClass
 | `CACHE_MAX_SIZE` | 500 | 2000 | 90% cache hit rate | +200MB RAM |
 | `BATCH_SIZE` | 10 | 20-50 | 5x faster batch processing | Higher latency per request |
 | `MAX_FILE_SIZE_MB` | 50 | 100 | Larger catalogs | More memory per request |
+| `GEMINI_REQUESTS_PER_MINUTE` | 10 | 10 | Rate limit safety margin | Slower PDF processing |
+| `GEMINI_PAGE_BATCH_SIZE` | 5 | 5-10 | Balance API calls vs speed | More API calls per batch |
+| `GEMINI_RETRY_MAX_ATTEMPTS` | 3 | 3 | Resilience to 429 errors | Longer total wait time |
+| `GEMINI_RETRY_BASE_DELAY` | 2.0s | 2.0s | Exponential backoff base | Delay between retries |
 
 ```python
 # backend/config.py
@@ -64,6 +68,17 @@ class Settings(BaseSettings):
     ollama_timeout: int = 60
     ollama_model: str = "llama3.2"
     ollama_max_retries: int = 2
+    
+    # Gemini AI Vision (Primary extraction method)
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-2.0-flash-exp"
+    gemini_timeout: int = 60
+    
+    # Gemini Rate Limiting (Conservative for free tier)
+    gemini_requests_per_minute: int = 10  # ~15 RPM free tier, use 10 to be safe
+    gemini_page_batch_size: int = 5       # Pages per batch for PDF processing
+    gemini_retry_max_attempts: int = 3    # Max retry attempts on 429 errors
+    gemini_retry_base_delay: float = 2.0  # Base delay for exponential backoff
     
     # Caching
     cache_max_size: int = 2000

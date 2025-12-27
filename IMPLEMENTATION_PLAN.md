@@ -49,11 +49,14 @@ graph TB
         Cache[Caché Redis/Memoria]
         
         subgraph Services["Servicios de Procesamiento"]
+            GeminiVision["🤖 Gemini Vision (Primary)"]
+            GeminiPDF[GeminiPDFExtractor]
             PDF[pdfplumber + tabula-py]
             Excel[pandas + openpyxl]
             Tesseract[Tesseract OCR]
             Ollama[Ollama LLM]
             Fallback[Clasificador Fallback]
+            GeminiRateLimiter[Rate Limiter]
         end
         
         DB[(PostgreSQL/SQLite)]
@@ -72,6 +75,9 @@ graph TB
     Cache --> Services
     Services --> DB
     API --> Logger
+    GeminiVision --> GeminiRateLimiter
+    GeminiPDF --> GeminiVision
+    GeminiPDF -.->|Fallback| PDF
 ```
 
 ---

@@ -74,10 +74,39 @@ def get_catalog(
     """
     catalog = db.get(Catalog, catalog_id)
     
-    if not catalog or catalog.user_id != MOCK_USER_ID:
+    if not catalog or catalog.user_id != user_id:
         raise NotFoundError("Catalog", catalog_id)
     
     return CatalogResponse.model_validate(catalog)
+
+
+@router.delete("/catalogs/{catalog_id}")
+def delete_catalog(
+    catalog_id: int,
+    user_id: int = Depends(get_current_user_id),
+    db: Session = Depends(get_db)
+):
+    """
+    Delete a catalog by ID.
+    
+    Deletes the catalog and all associated products (via cascade).
+    Returns 404 if catalog not found or doesn't belong to user.
+    """
+    catalog = db.get(Catalog, catalog_id)
+    
+    if not catalog or catalog.user_id != user_id:
+        raise NotFoundError("Catalog", catalog_id)
+    
+    catalog_name = catalog.name
+    db.delete(catalog)
+    db.commit()
+    
+    logger.info(
+        "catalog_deleted",
+        extra={"catalog_id": catalog_id, "catalog_name": catalog_name}
+    )
+    
+    return {"message": "Catalog deleted successfully", "catalog_id": catalog_id}
 
 
 @router.post("/catalogs/{catalog_id}/reclassify")
@@ -94,7 +123,7 @@ async def reclassify_catalog(
     """
     catalog = db.get(Catalog, catalog_id)
     
-    if not catalog or catalog.user_id != MOCK_USER_ID:
+    if not catalog or catalog.user_id != user_id:
         raise NotFoundError("Catalog", catalog_id)
     
     # TODO: Implement actual reclassification logic

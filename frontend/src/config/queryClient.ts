@@ -22,8 +22,8 @@ export const PERFORMANCE_CONFIG = {
     /** Maximum retries for failed API requests */
     MAX_RETRIES: 3,
 
-    /** Request timeout in ms */
-    REQUEST_TIMEOUT: 30000,
+    /** Request timeout in ms (10 minutes for large PDF processing) */
+    REQUEST_TIMEOUT: 600000,
 
     /** Enable offline mode caching */
     OFFLINE_ENABLED: true,

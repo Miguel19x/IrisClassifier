@@ -15,7 +15,7 @@ describe('API Service', () => {
     });
 
     it('should have correct timeout', () => {
-        expect(api.defaults.timeout).toBe(30000);
+        expect(api.defaults.timeout).toBe(600000); // 10 minutes for large PDF processing
     });
 
     it('should have correct default headers', () => {

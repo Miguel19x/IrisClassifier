@@ -77,6 +77,20 @@ export function useUploadCatalog() {
     });
 }
 
+export function useDeleteCatalog() {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: async (id: number) => {
+            await api.delete(`/catalogs/${id}`);
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['catalogs'] });
+            queryClient.invalidateQueries({ queryKey: ['products'] });
+        },
+    });
+}
+
 // Products
 export function useProducts(catalogId?: number) {
     return useQuery({

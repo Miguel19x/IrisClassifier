@@ -43,6 +43,17 @@ class Settings(BaseSettings):
     ollama_model: str = "llama3.2"
     ollama_max_retries: int = 2
     
+    # Gemini AI Vision
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-2.0-flash-exp"
+    gemini_timeout: int = 60
+    
+    # Gemini Rate Limiting (Conservative for free tier)
+    gemini_requests_per_minute: int = 10  # ~15 RPM free tier, use 10 to be safe
+    gemini_page_batch_size: int = 5       # Pages per batch for PDF processing
+    gemini_retry_max_attempts: int = 3    # Max retry attempts on 429 errors
+    gemini_retry_base_delay: float = 2.0  # Base delay in seconds for exponential backoff
+    
     # Caching
     cache_max_size: int = 2000
     cache_ttl_seconds: int = 3600  # 1 hour

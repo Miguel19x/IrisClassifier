@@ -12,7 +12,7 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 // Create axios instance
 export const api = axios.create({
     baseURL: `${API_URL}/api/v1`,
-    timeout: 120000, // 2 minutes for large file uploads
+    timeout: 600000, // 10 minutes for large PDF processing with rate limiting
     headers: {
         'Content-Type': 'application/json',
     },

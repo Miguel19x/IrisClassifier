@@ -281,7 +281,7 @@ class ProductTag(Base):
 
 class ProcessingLog(Base):
     """
-    Processing log model for audit trail.
+    Processing log model for audit trail and progress tracking.
     
     Attributes:
         id: Primary key
@@ -291,7 +291,13 @@ class ProcessingLog(Base):
         products_extracted: Number of products extracted
         products_classified: Number of products classified
         processing_time_seconds: Time taken to process
+        total_pages: Total pages in document (for PDFs)
+        pages_processed: Pages processed so far
+        current_batch: Current batch being processed
+        total_batches: Total batches to process
+        progress_message: Human-readable progress message
         created_at: Log timestamp
+        updated_at: Last update timestamp
     """
     __tablename__ = "processing_logs"
     
@@ -306,7 +312,16 @@ class ProcessingLog(Base):
     products_extracted: Mapped[int] = mapped_column(Integer, default=0)
     products_classified: Mapped[int] = mapped_column(Integer, default=0)
     processing_time_seconds: Mapped[Optional[float]] = mapped_column(Numeric(10, 2))
+    
+    # Progress tracking fields
+    total_pages: Mapped[int] = mapped_column(Integer, default=0)
+    pages_processed: Mapped[int] = mapped_column(Integer, default=0)
+    current_batch: Mapped[int] = mapped_column(Integer, default=0)
+    total_batches: Mapped[int] = mapped_column(Integer, default=0)
+    progress_message: Mapped[Optional[str]] = mapped_column(String(255))
+    
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), onupdate=func.now())
     
     # Relationships
     catalog: Mapped["Catalog"] = relationship("Catalog", back_populates="processing_logs")

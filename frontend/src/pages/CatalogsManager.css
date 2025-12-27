@@ -1,0 +1,148 @@
+.catalogs-manager {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 12px;
+  padding: 2rem;
+  backdrop-filter: blur(10px);
+}
+
+/* Upload Tabs */
+.upload-tabs {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.tab-btn {
+  flex: 1;
+  padding: 0.75rem;
+  background: rgba(255, 255, 255, 0.05);
+  border: 2px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  color: #a0a0a0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.tab-btn:hover {
+  border-color: rgba(102, 126, 234, 0.3);
+  color: #fff;
+}
+
+.tab-btn.active {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-color: transparent;
+  color: #fff;
+}
+
+/* Camera Controls */
+.camera-controls {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.btn-camera {
+  flex: 1;
+  min-width: 200px;
+  padding: 1rem;
+  background: linear-gradient(135deg, rgba(102, 126, 234, 0.2) 0%, rgba(118, 75, 162, 0.2) 100%);
+  border: 2px solid rgba(102, 126, 234, 0.3);
+  border-radius: 8px;
+  color: #fff;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.btn-camera:hover {
+  background: linear-gradient(135deg, rgba(102, 126, 234, 0.3) 0%, rgba(118, 75, 162, 0.3) 100%);
+  border-color: #667eea;
+  transform: translateY(-2px);
+}
+
+/* Catalog Actions */
+.catalog-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.btn-view,
+.btn-delete {
+  flex: 1;
+  padding: 0.6rem;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-view {
+  background: rgba(102, 126, 234, 0.2);
+  color: #667eea;
+}
+
+.btn-view:hover {
+  background: rgba(102, 126, 234, 0.3);
+}
+
+.btn-delete {
+  background: rgba(244, 67, 54, 0.2);
+  color: #f44336;
+}
+
+.btn-delete:hover:not(:disabled) {
+  background: rgba(244, 67, 54, 0.3);
+}
+
+.btn-delete:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Empty State */
+.empty-state {
+  text-align: center;
+  padding: 4rem 2rem;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 12px;
+  border: 2px dashed rgba(255, 255, 255, 0.1);
+}
+
+.empty-icon {
+  font-size: 4rem;
+  margin-bottom: 1rem;
+  opacity: 0.5;
+}
+
+.empty-state p {
+  color: #a0a0a0;
+  font-size: 1.1rem;
+  margin: 0.5rem 0;
+}
+
+.empty-state .hint {
+  font-size: 0.9rem;
+  color: #667eea;
+}
+
+@media (max-width: 768px) {
+  .camera-controls {
+    flex-direction: column;
+  }
+
+  .btn-camera {
+    min-width: 100%;
+  }
+
+  .catalog-actions {
+    flex-direction: column;
+  }
+}

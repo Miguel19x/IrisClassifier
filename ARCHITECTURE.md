@@ -22,9 +22,12 @@ graph TB
     end
     
     subgraph Extractors["Extraction Modules - Strategy Pattern"]
+        GeminiPDFExtractor[GeminiPDFExtractor]
+        GeminiVision[GeminiVisionService]
         PDFExtractor[PDFExtractor]
         ExcelParser[ExcelParser]
         OCRService[OCRService]
+        RateLimiter[GeminiRateLimiter]
     end
     
     subgraph Classifiers["Classification - Chain of Responsibility"]
@@ -44,6 +47,8 @@ graph TB
     Services --> Repository
     Repository --> Models
     Models --> DB
+    GeminiPDFExtractor --> GeminiVision
+    GeminiVision --> RateLimiter
 ```
 
 ---
@@ -57,6 +62,7 @@ graph TB
 | **Chain of Responsibility** | AI → Fallback | Fallback automático |
 | **Dependency Injection** | FastAPI Depends() | Desacoplamiento |
 | **Factory** | Crear extractor por MIME | Extensibilidad |
+| **Token Bucket** | GeminiRateLimiter | Rate limiting con backoff exponencial |
 
 ---
 
@@ -130,7 +136,124 @@ class BaseExtractor(ABC):
         )
 ```
 
+### 1.5. Gemini Vision Service and Rate Limiter
+
+```python
+# backend/services/rate_limiter.py
+"""
+Rate limiter for Gemini API requests.
+
+Implements token bucket algorithm to prevent exceeding API rate limits
+and includes retry logic with exponential backoff for 429 errors.
+"""
+import asyncio
+import time
+import logging
+from typing import Callable, Any, TypeVar, Optional
+from config import get_settings
+
+logger = logging.getLogger(__name__)
+settings = get_settings()
+
+T = TypeVar('T')
+
+
+class GeminiRateLimiter:
+    """
+    Rate limiter using token bucket algorithm.
+    
+    Ensures requests don't exceed the configured requests per minute.
+    Automatically waits before making requests if necessary.
+    """
+    
+    def __init__(self, requests_per_minute: Optional[int] = None):
+        self.requests_per_minute = requests_per_minute or settings.gemini_requests_per_minute
+        self.min_interval = 60.0 / self.requests_per_minute
+        self.last_request_time = 0.0
+        self._lock = asyncio.Lock()
+    
+    async def acquire(self) -> None:
+        """Acquire permission to make a request, waiting if necessary."""
+        async with self._lock:
+            current_time = time.time()
+            time_since_last = current_time - self.last_request_time
+            
+            if time_since_last < self.min_interval:
+                wait_time = self.min_interval - time_since_last
+                await asyncio.sleep(wait_time)
+            
+            self.last_request_time = time.time()
+    
+    async def execute_with_retry(self, func: Callable[..., T], *args, **kwargs) -> T:
+        """
+        Execute function with automatic retry on rate limit errors.
+        
+        Uses exponential backoff: 2s, 4s, 8s between retries.
+        Falls back gracefully when quota is exhausted.
+        """
+        max_attempts = settings.gemini_retry_max_attempts
+        base_delay = settings.gemini_retry_base_delay
+        
+        for attempt in range(1, max_attempts + 1):
+            try:
+                await self.acquire()
+                return await func(*args, **kwargs)
+            except Exception as e:
+                error_msg = str(e).lower()
+                is_rate_limit = "429" in error_msg or "quota" in error_msg
+                
+                if is_rate_limit and attempt < max_attempts:
+                    delay = base_delay * (2 ** (attempt - 1))
+                    logger.warning(f"Rate limit hit, retrying in {delay}s")
+                    await asyncio.sleep(delay)
+                    continue
+                raise
+```
+
+```python
+# backend/services/gemini_vision_service.py (excerpt)
+"""
+Gemini Vision Service for intelligent image analysis.
+
+Uses Google's Gemini 2.0 Flash model for:
+- Extracting structured data from catalog images
+- Understanding product listings, prices, and descriptions
+- Handling various catalog formats automatically
+"""
+
+class GeminiVisionService:
+    """
+    Service for analyzing catalog images using Gemini Vision.
+    
+    Provides intelligent extraction of products from images,
+    understanding layout, tables, and text automatically.
+    
+    Integrates with GeminiRateLimiter to prevent API throttling.
+    """
+    
+    def __init__(self):
+        self._model = None
+        self._configured = False
+        self._rate_limiter = get_rate_limiter()
+    
+    async def analyze_image(self, image_data: bytes, mime_type: str = "image/jpeg") -> Dict:
+        """
+        Analyze an image and extract product information.
+        
+        Uses rate limiting to prevent 429 errors.
+        """
+        self._ensure_configured()
+        
+        # Execute with rate limiting and retry logic
+        return await self._rate_limiter.execute_with_retry(
+            self._analyze_image_internal,
+            image_data,
+            mime_type
+        )
+```
+
 ### 2. PDF Extractor (Implementación Strategy)
+
 
 ```python
 # backend/services/extractors/pdf_extractor.py

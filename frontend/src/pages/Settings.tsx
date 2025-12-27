@@ -141,7 +141,7 @@ export function SettingsPage() {
                                 >
                                     <span className="segment-label">{range.name}</span>
                                     <span className="segment-prices">
-                                        ${range.min_price?.toFixed(0) || '0'} - {range.max_price ? `$${range.max_price.toFixed(0)}` : '∞'}
+                                        ${Number(range.min_price ?? 0).toFixed(0)} - {range.max_price ? `$${Number(range.max_price).toFixed(0)}` : '∞'}
                                     </span>
                                 </div>
                             ))}
@@ -268,8 +268,8 @@ export function SettingsPage() {
                                         <div className="range-details">
                                             <h4>{range.name}</h4>
                                             <p className="range-prices">
-                                                ${range.min_price?.toFixed(2) || '0.00'} -{' '}
-                                                {range.max_price ? `$${range.max_price.toFixed(2)}` : '∞ (sin límite)'}
+                                                ${Number(range.min_price ?? 0).toFixed(2)} -{' '}
+                                                {range.max_price ? `$${Number(range.max_price).toFixed(2)}` : '∞ (sin límite)'}
                                             </p>
                                         </div>
                                     </div>
@@ -314,6 +314,6 @@ export function SettingsPage() {
                     )}
                 </div>
             </div>
-        </div>
+        </div >
     );
 }

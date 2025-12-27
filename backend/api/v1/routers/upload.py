@@ -15,7 +15,9 @@ from api.v1.schemas.schemas import UploadResponse
 from api.dependencies import get_current_user_id
 from services.extractors.pdf_extractor import PDFExtractor
 from services.extractors.excel_parser import ExcelParser
-from services.extractors.ocr_extractor import OCRExtractor  # NEW: OCR for images
+from services.extractors.ocr_extractor import OCRExtractor
+from services.extractors.gemini_extractor import GeminiExtractor  # Gemini Vision AI for images
+from services.extractors.gemini_pdf_extractor import GeminiPDFExtractor  # Gemini Vision AI for PDFs
 from services.classification_service import ClassificationService
 from core.exceptions import FileProcessingError, CatalogTooLarge
 from config import get_settings
@@ -26,9 +28,11 @@ settings = get_settings()
 router = APIRouter()
 
 # Initialize extractors
-pdf_extractor = PDFExtractor()
+gemini_pdf_extractor = GeminiPDFExtractor()  # Gemini Vision AI for PDFs (primary)
+pdf_extractor = PDFExtractor()  # Traditional PDF extraction (fallback)
 excel_parser = ExcelParser()
-ocr_extractor = OCRExtractor()  # NEW: OCR extractor for images
+ocr_extractor = OCRExtractor()
+gemini_extractor = GeminiExtractor()  # Gemini Vision AI for images
 
 # Initialize classification service
 classification_service = ClassificationService()
@@ -71,11 +75,13 @@ async def process_catalog_background(
             db.commit()
             
             extractor = None
-            if pdf_extractor.supports(mime_type):
-                extractor = pdf_extractor
+            if gemini_pdf_extractor.supports(mime_type):  # Gemini Vision AI for PDFs (primary)
+                extractor = gemini_pdf_extractor
             elif excel_parser.supports(mime_type):
                 extractor = excel_parser
-            elif ocr_extractor.supports(mime_type):  # NEW: OCR for images
+            elif gemini_extractor.supports(mime_type):  # Gemini Vision AI for images
+                extractor = gemini_extractor
+            elif ocr_extractor.supports(mime_type):  # OCR fallback
                 extractor = ocr_extractor
             else:
                 raise FileProcessingError(f"Unsupported file type: {mime_type}")

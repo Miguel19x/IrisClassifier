@@ -25,6 +25,24 @@ Response headers:
 - `X-RateLimit-Remaining`: Remaining requests in window
 - `X-RateLimit-Reset`: Unix timestamp when limit resets
 
+### Gemini Vision API Rate Limiting
+
+IrisClassifier uses Google Gemini 2.0 Flash for intelligent catalog analysis. The following rate limits apply to Gemini API calls:
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `gemini_requests_per_minute` | 10 | Maximum API requests per minute (~15 RPM free tier, 10 for safety) |
+| `gemini_page_batch_size` | 5 | PDF pages processed per batch |
+| `gemini_retry_max_attempts` | 3 | Maximum retry attempts on 429 errors |
+| `gemini_retry_base_delay` | 2.0s | Base delay for exponential backoff |
+
+**Retry Behavior**: On 429 (Too Many Requests) errors, the system uses exponential backoff:
+- 1st retry: 2 seconds delay
+- 2nd retry: 4 seconds delay
+- 3rd retry: 8 seconds delay
+
+If Gemini quota is exhausted, the system automatically falls back to traditional OCR extraction.
+
 ---
 
 ## Endpoints
