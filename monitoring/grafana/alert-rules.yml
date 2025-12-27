@@ -1,0 +1,189 @@
+groups:
+  - name: iris_classifier_alerts
+    interval: 30s
+    rules:
+      # High error rate alert
+      - alert: HighErrorRate
+        expr: |
+          (
+            rate(iris_http_requests_total{status=~"5.."}[5m]) 
+            / 
+            rate(iris_http_requests_total[5m])
+          ) * 100 > 5
+        for: 2m
+        labels:
+          severity: warning
+          component: backend
+        annotations:
+          summary: "High error rate detected"
+          description: "Error rate is {{ $value | humanizePercentage }} (threshold: 5%)"
+
+      # Critical error rate alert
+      - alert: CriticalErrorRate
+        expr: |
+          (
+            rate(iris_http_requests_total{status=~"5.."}[5m]) 
+            / 
+            rate(iris_http_requests_total[5m])
+          ) * 100 > 10
+        for: 1m
+        labels:
+          severity: critical
+          component: backend
+        annotations:
+          summary: "CRITICAL: Very high error rate"
+          description: "Error rate is {{ $value | humanizePercentage }} (threshold: 10%)"
+
+      # Slow response time alert
+      - alert: SlowResponseTime
+        expr: |
+          histogram_quantile(0.95, 
+            rate(iris_http_request_duration_seconds_bucket[5m])
+          ) > 2
+        for: 3m
+        labels:
+          severity: warning
+          component: backend
+        annotations:
+          summary: "Slow API response times"
+          description: "P95 response time is {{ $value | humanizeDuration }} (threshold: 2s)"
+
+      # Very slow response time alert
+      - alert: VerySlowResponseTime
+        expr: |
+          histogram_quantile(0.95, 
+            rate(iris_http_request_duration_seconds_bucket[5m])
+          ) > 5
+        for: 1m
+        labels:
+          severity: critical
+          component: backend
+        annotations:
+          summary: "CRITICAL: Very slow API response times"
+          description: "P95 response time is {{ $value | humanizeDuration }} (threshold: 5s)"
+
+      # Database connection pool exhaustion
+      - alert: DatabasePoolExhaustion
+        expr: iris_db_pool_size{status="active"} >= 18
+        for: 1m
+        labels:
+          severity: critical
+          component: database
+        annotations:
+          summary: "Database connection pool near exhaustion"
+          description: "Active connections: {{ $value }} (max: 20)"
+
+      # Low cache hit rate
+      - alert: LowCacheHitRate
+        expr: |
+          (
+            iris_cache_hits_total 
+            / 
+            (iris_cache_hits_total + iris_cache_misses_total)
+          ) * 100 < 70
+        for: 5m
+        labels:
+          severity: warning
+          component: cache
+        annotations:
+          summary: "Low cache hit rate"
+          description: "Cache hit rate is {{ $value | humanizePercentage }} (threshold: 70%)"
+
+      # Service down alert
+      - alert: ServiceDown
+        expr: up{job="iris-backend"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: backend
+        annotations:
+          summary: "IrisClassifier backend is down"
+          description: "The backend service has been unavailable for more than 1 minute"
+
+      # High OCR processing time
+      - alert: SlowOCRProcessing
+        expr: |
+          histogram_quantile(0.95, 
+            rate(iris_ocr_processing_duration_seconds_bucket[5m])
+          ) > 10
+        for: 3m
+        labels:
+          severity: warning
+          component: ocr
+        annotations:
+          summary: "Slow OCR processing"
+          description: "P95 OCR processing time is {{ $value | humanizeDuration }} (threshold: 10s)"
+
+      # High classification failure rate
+      - alert: HighClassificationFailureRate
+        expr: |
+          (
+            rate(iris_classification_errors_total[5m]) 
+            / 
+            rate(iris_classification_requests_total[5m])
+          ) * 100 > 10
+        for: 3m
+        labels:
+          severity: warning
+          component: classifier
+        annotations:
+          summary: "High classification failure rate"
+          description: "Classification failure rate is {{ $value | humanizePercentage }} (threshold: 10%)"
+
+      # Database query slow
+      - alert: SlowDatabaseQueries
+        expr: |
+          histogram_quantile(0.95, 
+            rate(iris_db_query_duration_seconds_bucket[5m])
+          ) > 1
+        for: 3m
+        labels:
+          severity: warning
+          component: database
+        annotations:
+          summary: "Slow database queries detected"
+          description: "P95 query time is {{ $value | humanizeDuration }} (threshold: 1s)"
+
+      # High memory usage (if available)
+      - alert: HighMemoryUsage
+        expr: |
+          (
+            process_resident_memory_bytes 
+            / 
+            1024 / 1024 / 1024
+          ) > 2
+        for: 5m
+        labels:
+          severity: warning
+          component: backend
+        annotations:
+          summary: "High memory usage"
+          description: "Memory usage is {{ $value | humanize }}GB (threshold: 2GB)"
+
+      # Disk space low (if available)
+      - alert: LowDiskSpace
+        expr: |
+          (
+            node_filesystem_avail_bytes{mountpoint="/"} 
+            / 
+            node_filesystem_size_bytes{mountpoint="/"}
+          ) * 100 < 10
+        for: 5m
+        labels:
+          severity: critical
+          component: system
+        annotations:
+          summary: "Low disk space"
+          description: "Available disk space is {{ $value | humanizePercentage }} (threshold: 10%)"
+
+      # Ollama service unavailable
+      - alert: OllamaServiceDown
+        expr: iris_ollama_available == 0
+        for: 2m
+        labels:
+          severity: warning
+          component: ai
+        annotations:
+          summary: "Ollama AI service is unavailable"
+          description: "Ollama service has been unavailable for more than 2 minutes. Classification will use fallback method."
+

@@ -1,0 +1,48 @@
+# FastAPI and ASGI server
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+python-multipart==0.0.6
+
+# Database
+sqlalchemy==2.0.25
+alembic==1.13.1
+psycopg2-binary==2.9.9
+
+# Validation and serialization
+pydantic==2.5.3
+pydantic-settings==2.1.0
+
+# File processing
+pdfplumber==0.10.3
+tabula-py==2.9.0
+pandas==2.1.4
+openpyxl==3.1.2
+pillow==10.2.0
+pytesseract==0.3.10
+
+# AI/ML
+httpx==0.26.0
+ollama==0.1.6
+
+# Caching
+python-jose[cryptography]==3.3.0
+
+# Monitoring
+prometheus-client==0.19.0
+
+# Security
+python-magic==0.4.27
+slowapi==0.1.9
+
+# Testing
+pytest==7.4.4
+pytest-asyncio==0.23.3
+pytest-cov==4.1.0
+httpx==0.26.0
+
+# Code quality
+ruff==0.1.14
+black==23.12.1
+mypy==1.8.0
+bandit==1.7.6
+safety==3.0.1

@@ -1,0 +1,21 @@
+{
+    "appId": "com.irisclassifier.app",
+    "appName": "IrisClassifier",
+    "webDir": "dist",
+    "server": {
+        "androidScheme": "https"
+    },
+    "plugins": {
+        "Camera": {
+            "permissions": [
+                "camera",
+                "photos"
+            ]
+        },
+        "Filesystem": {
+            "permissions": [
+                "publicStorage"
+            ]
+        }
+    }
+}
