@@ -3,8 +3,8 @@ import { useState } from 'react';
 import './App.css';
 import { ProductsPage } from './pages/Products';
 import { LoginPage } from './pages/Login';
-import { CatalogsManagerPage } from './pages/CatalogsManager';
-import { ToolsHubPage } from './pages/ToolsHub';
+import { ListsManagerPage } from './pages/ListsManager';
+import { ListingsManagementPage } from './pages/ListingsManagement';
 import { AuthProvider, useAuth } from './hooks/useAuth';
 
 // Create a client
@@ -17,7 +17,7 @@ const queryClient = new QueryClient({
     },
 });
 
-type Page = 'catalogs' | 'products' | 'tools';
+type Page = 'lists' | 'products' | 'management';
 
 function Navigation({ currentPage, onNavigate }: { currentPage: Page; onNavigate: (page: Page) => void }) {
     const { user, logout } = useAuth();
@@ -26,10 +26,10 @@ function Navigation({ currentPage, onNavigate }: { currentPage: Page; onNavigate
         <nav className="navigation">
             <div className="nav-left">
                 <button
-                    className={`nav-item ${currentPage === 'catalogs' ? 'active' : ''}`}
-                    onClick={() => onNavigate('catalogs')}
+                    className={`nav-item ${currentPage === 'lists' ? 'active' : ''}`}
+                    onClick={() => onNavigate('lists')}
                 >
-                    📚 Catálogos
+                    📚 Listas
                 </button>
                 <button
                     className={`nav-item ${currentPage === 'products' ? 'active' : ''}`}
@@ -38,10 +38,10 @@ function Navigation({ currentPage, onNavigate }: { currentPage: Page; onNavigate
                     📦 Productos
                 </button>
                 <button
-                    className={`nav-item ${currentPage === 'tools' ? 'active' : ''}`}
-                    onClick={() => onNavigate('tools')}
+                    className={`nav-item ${currentPage === 'management' ? 'active' : ''}`}
+                    onClick={() => onNavigate('management')}
                 >
-                    🛠️ Herramientas
+                    📋 Gestión Listados
                 </button>
             </div>
             <div className="nav-right">
@@ -54,20 +54,18 @@ function Navigation({ currentPage, onNavigate }: { currentPage: Page; onNavigate
     );
 }
 
-// CatalogList component removed - now using CatalogsManagerPage
-
 function MainApp() {
-    const [currentPage, setCurrentPage] = useState<Page>('catalogs');
-    const [selectedCatalogId, setSelectedCatalogId] = useState<number | undefined>(undefined);
+    const [currentPage, setCurrentPage] = useState<Page>('lists');
+    const [selectedListId, setSelectedListId] = useState<number | undefined>(undefined);
 
-    const handleSelectCatalog = (catalogId: number) => {
-        setSelectedCatalogId(catalogId);
+    const handleSelectList = (listId: number) => {
+        setSelectedListId(listId);
         setCurrentPage('products');
     };
 
     const handleNavigate = (page: Page) => {
         if (page !== 'products') {
-            setSelectedCatalogId(undefined);  // Clear selection when leaving products
+            setSelectedListId(undefined);  // Clear selection when leaving products
         }
         setCurrentPage(page);
     };
@@ -82,9 +80,9 @@ function MainApp() {
             <Navigation currentPage={currentPage} onNavigate={handleNavigate} />
 
             <main className="app-main">
-                {currentPage === 'catalogs' && <CatalogsManagerPage onSelectCatalog={handleSelectCatalog} />}
-                {currentPage === 'products' && <ProductsPage catalogId={selectedCatalogId} />}
-                {currentPage === 'tools' && <ToolsHubPage />}
+                {currentPage === 'lists' && <ListsManagerPage onSelectList={handleSelectList} />}
+                {currentPage === 'products' && <ProductsPage listId={selectedListId} />}
+                {currentPage === 'management' && <ListingsManagementPage />}
             </main>
 
             <footer className="app-footer">

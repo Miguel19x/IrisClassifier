@@ -21,7 +21,7 @@ router = APIRouter()
 
 @router.get("/products", response_model=ProductList)
 def list_products(
-    catalog_id: Optional[int] = Query(None, description="Filter by catalog ID"),
+    list_id: Optional[int] = Query(None, description="Filter by price list ID"),
     price_range_id: Optional[int] = Query(None, description="Filter by price range"),
     min_price: Optional[float] = Query(None, ge=0, description="Minimum price"),
     max_price: Optional[float] = Query(None, ge=0, description="Maximum price"),
@@ -32,14 +32,13 @@ def list_products(
     """
     List products with optional filters.
     
-    Supports filtering by catalog, price range, and price.
+    Supports filtering by price list, price range, and price.
     Returns paginated results.
     """
-    # Build query
     query = select(Product)
     
-    if catalog_id:
-        query = query.where(Product.catalog_id == catalog_id)
+    if list_id:
+        query = query.where(Product.list_id == list_id)
     if price_range_id:
         query = query.where(Product.price_range_id == price_range_id)
     if min_price is not None:
@@ -48,7 +47,16 @@ def list_products(
         query = query.where(Product.price <= max_price)
     
     # Get total count
-    count_query = select(func.count()).select_from(query.subquery())
+    count_query = select(func.count(Product.id))
+    if list_id:
+        count_query = count_query.where(Product.list_id == list_id)
+    if price_range_id:
+        count_query = count_query.where(Product.price_range_id == price_range_id)
+    if min_price is not None:
+        count_query = count_query.where(Product.price >= min_price)
+    if max_price is not None:
+        count_query = count_query.where(Product.price <= max_price)
+    
     total = db.execute(count_query).scalar()
     
     # Apply pagination
@@ -123,7 +131,7 @@ def delete_product(
     """
     Delete a product.
     
-    Returns 204 No Content on success.
+    Returns success message on completion.
     """
     product = db.get(Product, product_id)
     if not product:
@@ -134,4 +142,4 @@ def delete_product(
     
     logger.info("product_deleted", extra={"product_id": product_id})
     
-    return {"message": "Product deleted successfully"}
+    return {"message": "Producto eliminado exitosamente"}

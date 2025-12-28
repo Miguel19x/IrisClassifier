@@ -1,5 +1,7 @@
 """
 Pydantic schemas for API request/response validation.
+
+REFACTORED: "Catalog" → "List" terminology throughout.
 """
 from datetime import datetime
 from decimal import Decimal
@@ -7,19 +9,22 @@ from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field, ConfigDict
 
 
-# Catalog schemas
-class CatalogBase(BaseModel):
-    """Base catalog schema."""
+# ============================================
+# PRICE LIST SCHEMAS
+# ============================================
+
+class ListBase(BaseModel):
+    """Base price list schema."""
     name: str = Field(..., min_length=1, max_length=255)
 
 
-class CatalogCreate(CatalogBase):
-    """Schema for creating a catalog."""
+class ListCreate(ListBase):
+    """Schema for creating a price list."""
     pass
 
 
-class CatalogResponse(CatalogBase):
-    """Schema for catalog response."""
+class ListResponse(ListBase):
+    """Schema for price list response."""
     id: int
     user_id: int
     source_file: Optional[str] = None
@@ -33,31 +38,38 @@ class CatalogResponse(CatalogBase):
     model_config = ConfigDict(from_attributes=True)
 
 
-class CatalogList(BaseModel):
-    """Schema for catalog list response."""
-    catalogs: List[CatalogResponse]
+class ListCollection(BaseModel):
+    """Schema for price list collection response."""
+    lists: List[ListResponse]
     total: int
     page: int
     page_size: int
 
 
-# Product schemas
+# ============================================
+# PRODUCT SCHEMAS
+# ============================================
+
 class ProductBase(BaseModel):
     """Base product schema."""
+    code: Optional[str] = Field(None, max_length=100)
     name: str = Field(..., min_length=1, max_length=500)
+    brand: Optional[str] = Field(None, max_length=200)
     price: Optional[Decimal] = Field(None, ge=0)
     currency: str = Field(default="USD", max_length=10)
 
 
 class ProductCreate(ProductBase):
     """Schema for creating a product."""
-    catalog_id: int
+    list_id: int
     category_id: Optional[int] = None
 
 
 class ProductUpdate(BaseModel):
     """Schema for updating a product."""
+    code: Optional[str] = Field(None, max_length=100)
     name: Optional[str] = Field(None, min_length=1, max_length=500)
+    brand: Optional[str] = Field(None, max_length=200)
     price: Optional[Decimal] = Field(None, ge=0)
     price_range_id: Optional[int] = None
     category_id: Optional[int] = None
@@ -66,14 +78,14 @@ class ProductUpdate(BaseModel):
 class ProductResponse(ProductBase):
     """Schema for product response."""
     id: int
-    catalog_id: int
+    list_id: int
     category_id: Optional[int] = None
     price_range_id: Optional[int] = None
     price_range_name: Optional[str] = None
     confidence_score: float
     classification_method: str
-    catalog_type: str = "price_list"  # NEW: catalog type
-    structured_data: Optional[Dict[str, Any]] = None  # NEW: flexible column data
+    list_type: str = "price_list"
+    structured_data: Optional[Dict[str, Any]] = None
     created_at: datetime
     updated_at: datetime
     
@@ -88,7 +100,10 @@ class ProductList(BaseModel):
     page_size: int
 
 
-# Price Range schemas
+# ============================================
+# PRICE RANGE SCHEMAS
+# ============================================
+
 class PriceRangeBase(BaseModel):
     """Base price range schema."""
     name: str = Field(..., min_length=1, max_length=100)
@@ -122,15 +137,53 @@ class PriceRangeResponse(PriceRangeBase):
     model_config = ConfigDict(from_attributes=True)
 
 
-# Upload schemas
+# ============================================
+# UPLOAD SCHEMAS
+# ============================================
+
 class UploadResponse(BaseModel):
     """Schema for upload response."""
-    catalog_id: int
+    list_id: int
     message: str
     status: str
 
 
-# Error schemas
+# ============================================
+# MASTER PRODUCT SCHEMAS
+# ============================================
+
+class MasterProductResponse(BaseModel):
+    """Schema for master product response."""
+    id: int
+    index_number: int
+    clean_code: str
+    description: str
+    brand: Optional[str]
+    price_usd: Decimal
+    review_status: str
+    confidence_score: float
+    source_list_id: int
+    original_list_name: str
+    margin_percentage: Optional[Decimal]
+    final_price: Optional[Decimal]
+    
+    model_config = ConfigDict(from_attributes=True)
+
+
+class MasterProductCollection(BaseModel):
+    """Schema for master product collection response."""
+    products: List[MasterProductResponse]
+    total: int
+    page: int
+    limit: int
+    has_next: bool
+    has_prev: bool
+
+
+# ============================================
+# ERROR SCHEMAS
+# ============================================
+
 class ErrorResponse(BaseModel):
     """Schema for error responses."""
     error: dict = Field(..., example={"code": "ERROR_CODE", "message": "Error message"})

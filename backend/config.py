@@ -45,8 +45,8 @@ class Settings(BaseSettings):
     
     # Gemini AI Vision
     gemini_api_key: str = ""
-    gemini_model: str = "gemini-2.0-flash-exp"
-    gemini_timeout: int = 60
+    gemini_model: str = "gemini-2.5-flash"  # Supports native PDF processing
+    gemini_timeout: int = 120  # Increased for large PDFs
     
     # Gemini Rate Limiting (Conservative for free tier)
     gemini_requests_per_minute: int = 10  # ~15 RPM free tier, use 10 to be safe

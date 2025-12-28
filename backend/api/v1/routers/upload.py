@@ -1,7 +1,7 @@
 """
 Upload API router.
 
-Handles file upload and catalog processing.
+Handles file upload and list processing with ETL Intelligent.
 """
 import logging
 import mimetypes
@@ -10,15 +10,16 @@ from fastapi import APIRouter, Depends, File, UploadFile, HTTPException, Backgro
 from sqlalchemy.orm import Session
 
 from database.connection import get_db
-from database.models import Catalog, Product, PriceRange, ProcessingLog
+from database.models import PriceList, Product, PriceRange, ProcessingLog, MasterProduct
 from api.v1.schemas.schemas import UploadResponse
 from api.dependencies import get_current_user_id
 from services.extractors.pdf_extractor import PDFExtractor
 from services.extractors.excel_parser import ExcelParser
 from services.extractors.ocr_extractor import OCRExtractor
-from services.extractors.gemini_extractor import GeminiExtractor  # Gemini Vision AI for images
-from services.extractors.gemini_pdf_extractor import GeminiPDFExtractor  # Gemini Vision AI for PDFs
+from services.extractors.gemini_extractor import GeminiExtractor
+from services.extractors.gemini_pdf_extractor import GeminiPDFExtractor
 from services.classification_service import ClassificationService
+from services.etl_intelligent_service import ETLIntelligentService
 from core.exceptions import FileProcessingError, CatalogTooLarge
 from config import get_settings
 
@@ -28,77 +29,102 @@ settings = get_settings()
 router = APIRouter()
 
 # Initialize extractors
-gemini_pdf_extractor = GeminiPDFExtractor()  # Gemini Vision AI for PDFs (primary)
-pdf_extractor = PDFExtractor()  # Traditional PDF extraction (fallback)
+gemini_pdf_extractor = GeminiPDFExtractor()
+pdf_extractor = PDFExtractor()
 excel_parser = ExcelParser()
 ocr_extractor = OCRExtractor()
-gemini_extractor = GeminiExtractor()  # Gemini Vision AI for images
+gemini_extractor = GeminiExtractor()
 
 # Initialize classification service
 classification_service = ClassificationService()
 
 
-async def process_catalog_background(
-    catalog_id: int,
+async def process_list_background(
+    list_id: int,
     file_content: bytes,
     mime_type: str,
     user_id: int
 ):
     """
-    Background task to process uploaded catalog.
+    Background task to process uploaded list with ETL Intelligent.
     
-    Extracts products and classifies them.
+    Extracts products, transforms with ETL, and saves to master_products.
     """
     # Create a new database session for background processing
     db = next(get_db())
     try:
-        catalog = db.get(Catalog, catalog_id)
-        if not catalog:
-            logger.error("catalog_not_found", extra={"catalog_id": catalog_id})
+        list_record = db.get(PriceList, list_id)
+        if not list_record:
+            logger.error("list_not_found", extra={"list_id": list_id})
             return
         
         # Create processing log
         log = ProcessingLog(
-            catalog_id=catalog_id,
+            catalog_id=list_id,
             status="started"
         )
         db.add(log)
         db.commit()
         
         try:
-            # Update catalog status
-            catalog.status = "processing"
+            # Update list status
+            list_record.status = "processing"
             db.commit()
             
-            # Extract products
+            # Phase 1: Extract products
             log.status = "extracting"
+            log.progress_message = "Extrayendo productos del archivo..."
             db.commit()
             
+            # Extractor selection priority
             extractor = None
-            if gemini_pdf_extractor.supports(mime_type):  # Gemini Vision AI for PDFs (primary)
-                extractor = gemini_pdf_extractor
-            elif excel_parser.supports(mime_type):
+            if excel_parser.supports(mime_type):
                 extractor = excel_parser
-            elif gemini_extractor.supports(mime_type):  # Gemini Vision AI for images
+            elif gemini_pdf_extractor.supports(mime_type):
+                extractor = gemini_pdf_extractor
+            elif gemini_extractor.supports(mime_type):
                 extractor = gemini_extractor
-            elif ocr_extractor.supports(mime_type):  # OCR fallback
+            elif ocr_extractor.supports(mime_type):
                 extractor = ocr_extractor
             else:
                 raise FileProcessingError(f"Unsupported file type: {mime_type}")
             
             raw_products = await extractor.extract(file_content)
             log.products_extracted = len(raw_products)
+            log.progress_message = f"Extraídos {len(raw_products)} productos, procesando ETL..."
             db.commit()
             
             if len(raw_products) > settings.max_products_per_catalog:
                 raise CatalogTooLarge(
-                    f"Catalog has {len(raw_products)} products, max is {settings.max_products_per_catalog}"
+                    f"List has {len(raw_products)} products, max is {settings.max_products_per_catalog}"
                 )
             
-            # Parse prices and create Product objects
-            products = []
+            # Phase 2: ETL Intelligent Processing
+            log.status = "classifying"
+            log.progress_message = "Aplicando ETL Inteligente con validación histórica..."
+            db.commit()
+            
+            etl_service = ETLIntelligentService(db)
+            master_products = await etl_service.process_file(
+                raw_products=raw_products,
+                list_id=list_id,
+                list_name=list_record.name
+            )
+            
+            # Save master products
+            db.add_all(master_products)
+            db.commit()
+            
+            # Count products needing review
+            pending_review = sum(1 for p in master_products if p.review_status == "pending")
+            confirmed = sum(1 for p in master_products if p.review_status == "confirmed")
+            
+            log.products_classified = confirmed
+            log.progress_message = f"ETL completado: {confirmed} confirmados, {pending_review} pendientes de revisión"
+            
+            # Also save to legacy products table for backward compatibility
             for raw_product in raw_products:
-                # Simple price parsing (remove non-numeric except . and ,)
+                # Simple price parsing
                 price_str = ''.join(c for c in raw_product.price_text if c.isdigit() or c in '.,')
                 price_str = price_str.replace(',', '.')
                 
@@ -107,86 +133,74 @@ async def process_catalog_background(
                 except ValueError:
                     price = None
                 
+                columns = raw_product.columns or {}
+                code = columns.get('code', '')
+                brand = columns.get('brand', '')
+                
                 product = Product(
-                    catalog_id=catalog_id,
+                    catalog_id=list_id,
+                    code=code if code else None,
                     name=raw_product.name,
+                    brand=brand if brand else None,
                     price=price,
                     original_text=raw_product.raw_line,
-                    catalog_type=raw_product.catalog_type,  # NEW: store catalog type
-                    structured_data=raw_product.columns if raw_product.columns else None,  # NEW: store flexible columns
-                    classification_method='pending',
-                    confidence_score=0.0
+                    catalog_type=raw_product.catalog_type,
+                    structured_data=raw_product.columns if raw_product.columns else None,
+                    classification_method='ai',
+                    confidence_score=1.0
                 )
-                products.append(product)
+                db.add(product)
             
-            db.add_all(products)
             db.commit()
             
-            # Classify products
-            log.status = "classifying"
-            db.commit()
-            
-            # Get price ranges
+            # Optional: Price range classification for legacy support
             price_ranges = db.query(PriceRange).filter(
                 PriceRange.user_id == user_id
             ).all()
             
-            # Only classify if we have price-based products
+            products = db.query(Product).filter(Product.catalog_id == list_id).all()
             price_based_products = [p for p in products if p.price is not None]
             
             if price_ranges and price_based_products:
-                # Classify products
                 results = await classification_service.classify_products(
                     price_based_products,
                     price_ranges
                 )
                 
-                # Update products with classification
                 for product, result in zip(price_based_products, results):
                     product.price_range_id = result.price_range_id
                     product.classification_method = result.method
                     product.confidence_score = result.confidence
                 
-                log.products_classified = len([r for r in results if r.price_range_id])
                 db.commit()
-            else:
-                # For non-price catalogs (e.g., automotive parts), mark as complete without classification
-                logger.info(
-                    "catalog_no_price_classification",
-                    extra={
-                        "catalog_id": catalog_id,
-                        "catalog_type": products[0].catalog_type if products else "unknown",
-                        "total_products": len(products),
-                        "price_based_products": len(price_based_products)
-                    }
-                )
-                log.products_classified = 0
             
-            # Update catalog
-            catalog.status = "completed"
-            catalog.product_count = len(products)
+            # Update list record
+            list_record.status = "completed"
+            list_record.product_count = len(master_products)
             log.status = "completed"
+            log.progress_message = f"Procesamiento completado: {len(master_products)} productos en Master Table"
             db.commit()
             
             logger.info(
-                "catalog_processed",
+                "list_processed_with_etl",
                 extra={
-                    "catalog_id": catalog_id,
-                    "products_extracted": len(products),
-                    "products_classified": log.products_classified
+                    "list_id": list_id,
+                    "products_extracted": len(raw_products),
+                    "master_products": len(master_products),
+                    "pending_review": pending_review
                 }
             )
             
         except Exception as e:
             logger.error(
-                "catalog_processing_failed",
+                "list_processing_failed",
                 extra={
-                    "catalog_id": catalog_id,
+                    "list_id": list_id,
                     "error": str(e)
                 },
                 exc_info=True
             )
-            catalog.status = "failed"
+            list_record.status = "failed"
             log.status = "failed"
             log.error_message = str(e)
             db.commit()
@@ -194,22 +208,22 @@ async def process_catalog_background(
         db.close()
 
 
-@router.post("/catalogs/upload", response_model=UploadResponse, status_code=202)
-async def upload_catalog(
+# New endpoint: /lists/upload
+@router.post("/lists/upload", response_model=UploadResponse, status_code=202)
+async def upload_list(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     user_id: int = Depends(get_current_user_id),
     db: Session = Depends(get_db)
 ):
     """
-    Upload a catalog file (PDF or Excel).
+    Upload a price list file (PDF or Excel).
     
     Accepts PDF (.pdf) and Excel (.xlsx, .xls) files.
-    Processing happens in the background.
+    Processing happens in the background with ETL Intelligent.
     
-    Returns 202 Accepted with catalog ID.
+    Returns 202 Accepted with list ID.
     """
-    # Read file content
     content = await file.read()
     
     # Validate file size
@@ -219,10 +233,9 @@ async def upload_catalog(
             detail=f"File too large. Max size is {settings.max_file_size_mb}MB"
         )
     
-    # Detect MIME type from filename
+    # Detect MIME type
     mime_type, _ = mimetypes.guess_type(file.filename)
     
-    # If mimetypes can't detect, try by extension
     if not mime_type:
         if file.filename.lower().endswith('.pdf'):
             mime_type = 'application/pdf'
@@ -236,52 +249,68 @@ async def upload_catalog(
         'application/pdf',
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         'application/vnd.ms-excel',
-        'image/jpeg',  # NEW: Image support
-        'image/jpg',   # NEW: Image support
-        'image/png',   # NEW: Image support
+        'image/jpeg',
+        'image/jpg',
+        'image/png',
     ]
     
     if mime_type not in supported_types:
         raise HTTPException(
             status_code=415,
-            detail=f"Unsupported file type: {mime_type}. Supported: PDF, Excel"
+            detail=f"Unsupported file type: {mime_type}. Supported: PDF, Excel, Images"
         )
     
-    # Create catalog record
-    catalog = Catalog(
+    # Create list record (using Catalog model for now, can rename later)
+    list_record = Catalog(
         user_id=user_id,
-        name=file.filename or "Untitled",
+        name=file.filename or "Sin nombre",
         source_file=file.filename,
         file_type=mime_type,
         file_size_bytes=len(content),
         status="pending"
     )
     
-    db.add(catalog)
+    db.add(list_record)
     db.commit()
-    db.refresh(catalog)
+    db.refresh(list_record)
     
     logger.info(
-        "catalog_uploaded",
+        "list_uploaded",
         extra={
-            "catalog_id": catalog.id,
+            "list_id": list_record.id,
             "file_name": file.filename,
             "size_bytes": len(content),
             "mime_type": mime_type
         }
     )
     
-    # Process in background
+    # Process in background with ETL
     background_tasks.add_task(
-        process_catalog_background,
-        catalog.id,
+        process_list_background,
+        list_record.id,
         content,
         mime_type,
         user_id
     )
     
     return UploadResponse(
-        catalog_id=catalog.id,
-        message="File uploaded successfully. Processing started.",
+        catalog_id=list_record.id,
+        message="Lista subida exitosamente. Procesamiento ETL iniciado.",
         status="processing"
     )
+
+
+# Legacy endpoint: /catalogs/upload (backward compatibility)
+@router.post("/catalogs/upload", response_model=UploadResponse, status_code=202)
+async def upload_catalog(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    user_id: int = Depends(get_current_user_id),
+    db: Session = Depends(get_db)
+):
+    """
+    DEPRECATED: Use /lists/upload instead.
+    
+    This endpoint is kept for backward compatibility.
+    """
+    return await upload_list(background_tasks, file, user_id, db)

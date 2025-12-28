@@ -1,11 +1,16 @@
 /**
  * React Query hooks for API calls.
+ * 
+ * REFACTORED: All "Catalog" references eliminated. Using "List" terminology.
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from './api';
 
-// Types
-interface Catalog {
+// ============================================
+// TYPES
+// ============================================
+
+interface PriceList {
     id: number;
     name: string;
     status: string;
@@ -15,13 +20,16 @@ interface Catalog {
 
 interface Product {
     id: number;
+    code: string | null;
     name: string;
+    brand: string | null;
     price: number | null;
+    currency: string;
     price_range_name: string | null;
     classification_method: string;
     confidence_score: number;
-    catalog_type: string;  // 'price_list' or 'automotive_parts'
-    structured_data: Record<string, string> | null;  // Flexible column data
+    list_type: string;
+    structured_data: Record<string, string> | null;
 }
 
 interface PriceRange {
@@ -33,30 +41,56 @@ interface PriceRange {
     display_order: number;
 }
 
-// Catalogs
-export function useCatalogs(status?: string) {
+interface MasterProduct {
+    id: number;
+    index_number: number;
+    clean_code: string;
+    description: string;
+    brand: string | null;
+    price_usd: number;
+    review_status: 'pending' | 'confirmed' | 'rejected';
+    confidence_score: number;
+    source_list_id: number;
+    original_list_name: string;
+    margin_percentage: number | null;
+    final_price: number | null;
+}
+
+interface PriceStats {
+    min_price: number;
+    max_price: number;
+    p25: number;
+    p50: number;
+    p75: number;
+}
+
+// ============================================
+// PRICE LISTS
+// ============================================
+
+export function useLists(status?: string) {
     return useQuery({
-        queryKey: ['catalogs', status],
+        queryKey: ['lists', status],
         queryFn: async () => {
             const params = status ? { status } : {};
-            const response = await api.get<{ catalogs: Catalog[]; total: number }>('/catalogs', { params });
+            const response = await api.get<{ lists: PriceList[]; total: number }>('/lists', { params });
             return response.data;
         },
     });
 }
 
-export function useCatalog(id: number) {
+export function useList(id: number) {
     return useQuery({
-        queryKey: ['catalog', id],
+        queryKey: ['list', id],
         queryFn: async () => {
-            const response = await api.get<Catalog>(`/catalogs/${id}`);
+            const response = await api.get<PriceList>(`/lists/${id}`);
             return response.data;
         },
         enabled: !!id,
     });
 }
 
-export function useUploadCatalog() {
+export function useUploadList() {
     const queryClient = useQueryClient();
 
     return useMutation({
@@ -64,7 +98,7 @@ export function useUploadCatalog() {
             const formData = new FormData();
             formData.append('file', file);
 
-            const response = await api.post('/catalogs/upload', formData, {
+            const response = await api.post('/lists/upload', formData, {
                 headers: {
                     'Content-Type': 'multipart/form-data',
                 },
@@ -72,31 +106,36 @@ export function useUploadCatalog() {
             return response.data;
         },
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['catalogs'] });
+            queryClient.invalidateQueries({ queryKey: ['lists'] });
+            queryClient.invalidateQueries({ queryKey: ['master-products'] });
         },
     });
 }
 
-export function useDeleteCatalog() {
+export function useDeleteList() {
     const queryClient = useQueryClient();
 
     return useMutation({
         mutationFn: async (id: number) => {
-            await api.delete(`/catalogs/${id}`);
+            await api.delete(`/lists/${id}`);
         },
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['catalogs'] });
+            queryClient.invalidateQueries({ queryKey: ['lists'] });
             queryClient.invalidateQueries({ queryKey: ['products'] });
+            queryClient.invalidateQueries({ queryKey: ['master-products'] });
         },
     });
 }
 
-// Products
-export function useProducts(catalogId?: number) {
+// ============================================
+// PRODUCTS
+// ============================================
+
+export function useProducts(listId?: number) {
     return useQuery({
-        queryKey: ['products', catalogId],
+        queryKey: ['products', listId],
         queryFn: async () => {
-            const params = catalogId ? { catalog_id: catalogId } : {};
+            const params = listId ? { list_id: listId } : {};
             const response = await api.get<{ products: Product[]; total: number }>('/products', { params });
             return response.data;
         },
@@ -117,7 +156,10 @@ export function useUpdateProduct() {
     });
 }
 
-// Price Ranges
+// ============================================
+// PRICE RANGES
+// ============================================
+
 export function usePriceRanges() {
     return useQuery({
         queryKey: ['price-ranges'],
@@ -169,17 +211,23 @@ export function useDeletePriceRange() {
     });
 }
 
-// Comparison
-export function useCompareCatalogs() {
+// ============================================
+// COMPARISON
+// ============================================
+
+export function useCompareLists() {
     return useMutation({
-        mutationFn: async (data: { catalog_ids: number[]; use_ai?: boolean }) => {
+        mutationFn: async (data: { list_ids: number[]; use_ai?: boolean }) => {
             const response = await api.post('/compare', data);
             return response.data;
         },
     });
 }
 
-// Mixed Listings
+// ============================================
+// MIXED LISTINGS
+// ============================================
+
 export function useMixedListings() {
     return useQuery({
         queryKey: ['mixed-listings'],
@@ -197,7 +245,7 @@ export function useCreateMixedListing() {
         mutationFn: async (data: {
             name: string;
             description?: string;
-            catalog_ids: number[];
+            list_ids: number[];
             use_best_prices?: boolean;
             price_range_ids?: number[];
         }) => {
@@ -239,6 +287,100 @@ export function useDeleteMixedListing() {
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['mixed-listings'] });
+        },
+    });
+}
+
+// ============================================
+// MASTER TABLE (Gestión Listados)
+// ============================================
+
+export function useMasterProducts(params?: {
+    viewMode?: 'enterprise' | 'client';
+    sortBy?: 'alphabetical' | 'brand' | 'description' | 'price';
+    brandFilter?: string;
+    reviewStatusFilter?: string;
+    page?: number;
+    limit?: number;
+}) {
+    return useQuery({
+        queryKey: ['master-products', params],
+        queryFn: async () => {
+            const queryParams = new URLSearchParams();
+            if (params?.viewMode) queryParams.append('view_mode', params.viewMode);
+            if (params?.sortBy) queryParams.append('sort_by', params.sortBy);
+            if (params?.brandFilter) queryParams.append('brand_filter', params.brandFilter);
+            if (params?.reviewStatusFilter) queryParams.append('review_status_filter', params.reviewStatusFilter);
+            if (params?.page) queryParams.append('page', params.page.toString());
+            if (params?.limit) queryParams.append('limit', params.limit.toString());
+
+            const response = await api.get<{
+                products: MasterProduct[];
+                total: number;
+                page: number;
+                limit: number;
+                has_next: boolean;
+                has_prev: boolean;
+            }>(`/master-products?${queryParams}`);
+            return response.data;
+        },
+    });
+}
+
+export function usePriceStats() {
+    return useQuery({
+        queryKey: ['price-stats'],
+        queryFn: async () => {
+            const response = await api.get<PriceStats>('/master-products/stats');
+            return response.data;
+        },
+    });
+}
+
+export function useUpdateMargin() {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: async ({ productId, margin_percentage }: { productId: number; margin_percentage: number }) => {
+            const response = await api.patch(`/master-products/${productId}/margin`, {
+                margin_percentage
+            });
+            return response.data;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['master-products'] });
+        },
+    });
+}
+
+export function useUpdateFinalPrice() {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: async ({ productId, final_price }: { productId: number; final_price: number }) => {
+            const response = await api.patch(`/master-products/${productId}/final-price`, {
+                final_price
+            });
+            return response.data;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['master-products'] });
+        },
+    });
+}
+
+export function useUpdateReviewStatus() {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: async ({ productId, review_status }: { productId: number; review_status: 'pending' | 'confirmed' | 'rejected' }) => {
+            const response = await api.patch(`/master-products/${productId}/review-status`, {
+                review_status
+            });
+            return response.data;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['master-products'] });
         },
     });
 }

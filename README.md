@@ -1,45 +1,47 @@
 # 🌈 IrisClassifier
 
-AI-Powered Product Classification System with Mobile Support
+Sistema de Clasificación de Productos con IA y Gestión de Listas de Precios
 
-## 📋 Features
+## 📋 Características Principales
 
-- 📤 **Upload Catalogs**: PDF, Excel, or Camera capture
-- 🤖 **AI Classification**: Ollama-powered product categorization
-- 💰 **Price Ranges**: Customizable price categories
-- 📱 **Mobile Ready**: Android & iOS support via Capacitor
-- 📊 **Monitoring**: Prometheus + Grafana observability
-- 🐳 **Docker**: Full containerization support
+- 📤 **Subir Listas de Precios**: PDF, Excel, o captura con cámara
+- 🤖 **ETL Inteligente**: Normalización de códigos con Gemini 2.5 Flash
+- 💰 **Gestión Listados**: Vista dual Empresarial/Cliente con heatmap
+- 📊 **Comparación de Precios**: Análisis Barato/Mediano/Caro
+- 📱 **Soporte Móvil**: Android & iOS via Capacitor
+- 📈 **Monitoreo**: Prometheus + Grafana
 
-## 🚀 Quick Start
+## 🚀 Inicio Rápido
 
-### Prerequisites
+### Requisitos
 
-- **Backend**: Python 3.11+, pnpm
-- **Frontend**: Node.js 20+
-- **Mobile** (optional): Android Studio / Xcode
-- **Docker** (optional): Docker & Docker Compose
+- **Backend**: Python 3.11+
+- **Frontend**: Node.js 20+, pnpm
+- **IA**: Gemini API Key (gratuita: https://ai.google.dev)
 
-### Development Setup
+### Desarrollo
 
 #### 1. Backend
 
 ```bash
 cd backend
 
-# Create virtual environment
+# Crear entorno virtual
 python -m venv venv
 .\venv\Scripts\activate  # Windows
-# source venv/bin/activate  # Linux/Mac
 
-# Install dependencies
+# Instalar dependencias
 pip install -r requirements.txt
 
-# Run server
+# Configurar variables
+cp .env.example .env
+# Editar .env con GEMINI_API_KEY
+
+# Ejecutar servidor
 uvicorn main:app --reload
 ```
 
-Backend runs on: http://localhost:8000
+Backend: http://localhost:8000
 - API Docs: http://localhost:8000/docs
 - Metrics: http://localhost:8000/metrics
 
@@ -48,147 +50,130 @@ Backend runs on: http://localhost:8000
 ```bash
 cd frontend
 
-# Install dependencies
+# Instalar dependencias
 pnpm install
 
-# Run dev server
+# Ejecutar servidor de desarrollo
 pnpm dev
 ```
 
-Frontend runs on: http://localhost:5173
+Frontend: http://localhost:5173
 
-### Docker Deployment
+### Credenciales por Defecto
 
-```bash
-# Copy environment file
-cp .env.example .env
-# Edit .env with your values
-
-# Start all services
-docker-compose up -d
-
-# With monitoring
-docker-compose -f docker-compose.yml -f docker-compose.monitoring.yml up -d
+```
+Email: admin@iris.com
+Password: admin123
 ```
 
-Services:
-- Frontend: http://localhost
-- Backend: http://localhost:8000
-- Prometheus: http://localhost:9090
-- Grafana: http://localhost:3000
+## 📊 API Endpoints
 
-## 📱 Mobile Development
+### Listas de Precios
 
-### Android
+| Método | Endpoint | Descripción |
+|--------|----------|-------------|
+| GET | `/api/v1/lists` | Listar listas |
+| GET | `/api/v1/lists/{id}` | Obtener lista |
+| DELETE | `/api/v1/lists/{id}` | Eliminar lista |
+| POST | `/api/v1/lists/upload` | Subir lista (con ETL) |
 
-```bash
-cd frontend
+### Productos
 
-# Build web app
-pnpm build
+| Método | Endpoint | Descripción |
+|--------|----------|-------------|
+| GET | `/api/v1/products` | Listar productos |
+| PATCH | `/api/v1/products/{id}` | Actualizar producto |
+| DELETE | `/api/v1/products/{id}` | Eliminar producto |
 
-# Sync with Android
-pnpm exec cap sync android
+### Master Table (Gestión Listados)
 
-# Open in Android Studio
-pnpm exec cap open android
-```
+| Método | Endpoint | Descripción |
+|--------|----------|-------------|
+| GET | `/api/v1/master-products` | Listar Master Table |
+| GET | `/api/v1/master-products/stats` | Estadísticas (heatmap) |
+| GET | `/api/v1/master-products/export` | Exportar PDF/Excel |
+| PATCH | `/api/v1/master-products/{id}/margin` | Actualizar margen |
+| PATCH | `/api/v1/master-products/{id}/final-price` | Actualizar precio final |
+| PATCH | `/api/v1/master-products/{id}/review-status` | Confirmar/Rechazar |
 
-### iOS (Mac only)
+### Rangos de Precio
 
-```bash
-cd frontend
+| Método | Endpoint | Descripción |
+|--------|----------|-------------|
+| GET | `/api/v1/price-ranges` | Listar rangos |
+| POST | `/api/v1/price-ranges` | Crear rango |
+| PUT | `/api/v1/price-ranges/{id}` | Actualizar rango |
+| DELETE | `/api/v1/price-ranges/{id}` | Eliminar rango |
 
-# Build web app
-pnpm build
-
-# Add iOS platform
-pnpm exec cap add ios
-
-# Sync with iOS
-pnpm exec cap sync ios
-
-# Open in Xcode
-pnpm exec cap open ios
-```
-
-## 🔧 Configuration
+## 🔧 Configuración
 
 ### Backend (.env)
 
 ```env
 DATABASE_URL=sqlite:///./iris.db
-OLLAMA_BASE_URL=http://localhost:11434
-SECRET_KEY=your-secret-key
+GEMINI_API_KEY=tu-api-key-de-gemini
+SECRET_KEY=tu-secret-key-seguro
 CORS_ORIGINS=http://localhost:5173
 ```
 
 ### Frontend (.env)
 
 ```env
-VITE_API_URL=http://localhost:8000
+VITE_API_URL=http://localhost:8000/api/v1
 ```
 
-## 📊 API Endpoints
+## 📱 Desarrollo Móvil
 
-### Catalogs
-- `GET /api/v1/catalogs` - List catalogs
-- `POST /api/v1/catalogs/upload` - Upload file
-- `GET /api/v1/catalogs/{id}/export` - Export (CSV/Excel/JSON)
+### Android
 
-### Products
-- `GET /api/v1/products` - List products
-- `PATCH /api/v1/products/{id}` - Update product
-- `DELETE /api/v1/products/{id}` - Delete product
+```bash
+cd frontend
+pnpm build
+pnpm exec cap sync android
+pnpm exec cap open android
+```
 
-### Price Ranges
-- `GET /api/v1/price-ranges` - List ranges
-- `POST /api/v1/price-ranges` - Create range
-- `PUT /api/v1/price-ranges/{id}` - Update range
-- `DELETE /api/v1/price-ranges/{id}` - Delete range
+### iOS (Solo Mac)
+
+```bash
+cd frontend
+pnpm build
+pnpm exec cap add ios
+pnpm exec cap sync ios
+pnpm exec cap open ios
+```
+
+## 📦 Stack Tecnológico
+
+### Backend
+- **FastAPI**: Framework web Python
+- **SQLAlchemy**: ORM
+- **Gemini 2.5 Flash**: Extracción y normalización IA
+- **Alembic**: Migraciones de base de datos
+- **Prometheus**: Métricas
+
+### Frontend
+- **Vite + React 18**: UI moderna
+- **TypeScript**: Tipado estático
+- **TanStack Query**: Estado del servidor
+- **Capacitor**: Wrapper móvil
 
 ## 🧪 Testing
 
-### Backend Tests
-
 ```bash
+# Backend
 cd backend
 pytest tests/ -v
-```
 
-### Frontend Tests
-
-```bash
+# Frontend
 cd frontend
 pnpm test
 ```
 
-## 📦 Tech Stack
-
-### Backend
-- **FastAPI**: Modern Python web framework
-- **SQLAlchemy**: ORM for database
-- **Ollama**: AI classification
-- **Prometheus**: Metrics collection
-- **pdfplumber**: PDF extraction
-- **pandas**: Data processing
-
-### Frontend
-- **Vite**: Fast build tool
-- **React 18**: UI library
-- **TypeScript**: Type safety
-- **TanStack Query**: Server state
-- **Capacitor**: Mobile wrapper
-- **Axios**: HTTP client
-
-## 📝 License
+## 📄 Licencia
 
 MIT License
 
-## 🤝 Contributing
+## 🤝 Contribuir
 
-Contributions welcome! Please open an issue or PR.
-
-## 📧 Support
-
-For issues and questions, please open a GitHub issue.
+¡Contribuciones bienvenidas! Por favor abre un issue o PR.

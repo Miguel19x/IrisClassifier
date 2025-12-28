@@ -36,7 +36,7 @@
 }
 
 /* Catalog Selector Bar */
-.catalog-selector-bar {
+.list-selector-bar {
   display: flex;
   align-items: center;
   gap: 1rem;
@@ -46,12 +46,12 @@
   border-radius: 8px;
 }
 
-.catalog-selector-bar label {
+.list-selector-bar label {
   color: #a0a0a0;
   font-weight: 500;
 }
 
-.catalog-select {
+.list-select {
   flex: 1;
   max-width: 400px;
   padding: 0.75rem 1rem;
@@ -63,19 +63,19 @@
   cursor: pointer;
 }
 
-.catalog-select:focus {
+.list-select:focus {
   outline: none;
   border-color: #667eea;
   background: rgba(255, 255, 255, 0.15);
 }
 
-.catalog-select option {
+.list-select option {
   background: #1a1a2e;
   color: #fff;
 }
 
 /* No catalog selected state */
-.no-catalog-selected {
+.no-list-selected {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -88,18 +88,18 @@
   border: 2px dashed rgba(255, 255, 255, 0.1);
 }
 
-.no-catalog-selected .placeholder-icon {
+.no-list-selected .placeholder-icon {
   font-size: 4rem;
   margin-bottom: 1rem;
   opacity: 0.5;
 }
 
-.no-catalog-selected p {
+.no-list-selected p {
   font-size: 1.1rem;
   margin: 0.5rem 0;
 }
 
-.no-catalog-selected .hint {
+.no-list-selected .hint {
   font-size: 0.9rem;
   color: #667eea;
 }
@@ -537,4 +537,66 @@
   .plugs-grid {
     grid-template-columns: 1fr;
   }
+}
+
+/* Pagination */
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+  padding: 1rem;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 8px;
+}
+
+.pagination-btn {
+  padding: 0.5rem 1rem;
+  border: none;
+  background: rgba(102, 126, 234, 0.2);
+  color: #667eea;
+  cursor: pointer;
+  border-radius: 6px;
+  font-size: 1rem;
+  transition: all 0.2s ease;
+}
+
+.pagination-btn:hover:not(:disabled) {
+  background: rgba(102, 126, 234, 0.4);
+  transform: scale(1.05);
+}
+
+.pagination-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.pagination-info {
+  color: #a0a0a0;
+  font-size: 0.9rem;
+  padding: 0 1rem;
+}
+
+/* Code and Price cells */
+.product-code {
+  font-family: 'Roboto Mono', 'Consolas', monospace;
+  color: #667eea;
+  font-weight: 500;
+}
+
+.code-cell {
+  white-space: nowrap;
+}
+
+.price-cell {
+  white-space: nowrap;
+  font-weight: 500;
+  color: #4caf50;
+}
+
+.edit-code,
+.edit-brand,
+.edit-price {
+  max-width: 120px;
 }

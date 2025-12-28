@@ -173,10 +173,10 @@ async def root():
 
 
 # Include API routers
-from api.v1.routers import catalogs, products, price_ranges, upload, export, auth, compare, mixed_listings, progress
+from api.v1.routers import lists, products, price_ranges, upload, export, auth, compare, mixed_listings, progress, master_table
 
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Authentication"])
-app.include_router(catalogs.router, prefix="/api/v1", tags=["Catalogs"])
+app.include_router(lists.router, prefix="/api/v1", tags=["Lists"])
 app.include_router(products.router, prefix="/api/v1", tags=["Products"])
 app.include_router(price_ranges.router, prefix="/api/v1", tags=["Price Ranges"])
 app.include_router(upload.router, prefix="/api/v1", tags=["Upload"])
@@ -184,6 +184,7 @@ app.include_router(export.router, prefix="/api/v1", tags=["Export"])
 app.include_router(compare.router, prefix="/api/v1", tags=["Comparison"])
 app.include_router(mixed_listings.router, prefix="/api/v1", tags=["Mixed Listings"])
 app.include_router(progress.router, prefix="/api/v1", tags=["Progress"])
+app.include_router(master_table.router, prefix="/api/v1", tags=["Master Table"])
 
 
 if __name__ == "__main__":

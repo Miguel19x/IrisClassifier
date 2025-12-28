@@ -1,21 +1,21 @@
 /**
- * Página consolidada de Gestión de Catálogos.
+ * Página consolidada de Gestión de Listas de Precios.
  * 
- * Combina subida de archivos, cámara, y gestión de catálogos.
+ * Combina subida de archivos, cámara, y gestión de listas.
  */
 import { useState } from 'react';
-import { useCatalogs, useUploadCatalog, useDeleteCatalog } from '../services/queries';
+import { useLists, useUploadList, useDeleteList } from '../services/queries';
 import { useCamera } from '../hooks/useCamera';
-import './CatalogsManager.css';
+import './ListsManager.css';
 
-interface CatalogsManagerProps {
-    onSelectCatalog: (id: number) => void;
+interface ListsManagerProps {
+    onSelectList: (id: number) => void;
 }
 
-export function CatalogsManagerPage({ onSelectCatalog }: CatalogsManagerProps) {
-    const { data, isLoading, error } = useCatalogs();
-    const uploadMutation = useUploadCatalog();
-    const deleteMutation = useDeleteCatalog();
+export function ListsManagerPage({ onSelectList }: ListsManagerProps) {
+    const { data, isLoading, error } = useLists();
+    const uploadMutation = useUploadList();
+    const deleteMutation = useDeleteList();
     const { takePhoto, pickFromGallery } = useCamera();
 
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -34,7 +34,7 @@ export function CatalogsManagerPage({ onSelectCatalog }: CatalogsManagerProps) {
                 setSelectedFile(null);
                 const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
                 if (fileInput) fileInput.value = '';
-                alert('¡Archivo subido exitosamente! Procesamiento iniciado.');
+                alert('¡Lista subida exitosamente! ETL Inteligente iniciado.');
             } catch (err) {
                 alert('Error al subir: ' + (err instanceof Error ? err.message : 'Error desconocido'));
             }
@@ -45,7 +45,6 @@ export function CatalogsManagerPage({ onSelectCatalog }: CatalogsManagerProps) {
         try {
             const photoDataUrl = await takePhoto();
             if (photoDataUrl) {
-                // Convert data URL to File
                 const response = await fetch(photoDataUrl);
                 const blob = await response.blob();
                 const file = new File([blob], `photo_${Date.now()}.jpg`, { type: 'image/jpeg' });
@@ -72,39 +71,39 @@ export function CatalogsManagerPage({ onSelectCatalog }: CatalogsManagerProps) {
         }
     };
 
-    const handleDeleteCatalog = async (id: number, name: string) => {
-        if (confirm(`¿Eliminar el catálogo "${name}"? Esta acción no se puede deshacer.`)) {
+    const handleDeleteList = async (id: number, name: string) => {
+        if (confirm(`¿Eliminar la lista "${name}"? Esta acción no se puede deshacer.`)) {
             try {
                 await deleteMutation.mutateAsync(id);
             } catch (err) {
-                alert('Error al eliminar catálogo');
+                alert('Error al eliminar lista');
             }
         }
     };
 
-    if (isLoading) return <div className="loading">Cargando catálogos...</div>;
-    if (error) return <div className="error">Error al cargar catálogos: {error.message}</div>;
+    if (isLoading) return <div className="loading">Cargando listas...</div>;
+    if (error) return <div className="error">Error al cargar listas: {error.message}</div>;
 
-    const totalCatalogs = data?.catalogs.length || 0;
-    const totalProducts = data?.catalogs.reduce((sum: number, c: any) => sum + (c.product_count || 0), 0) || 0;
-    const completedCatalogs = data?.catalogs.filter((c: any) => c.status === 'completed').length || 0;
-    const processingCatalogs = data?.catalogs.filter((c: any) => c.status === 'processing').length || 0;
+    const totalLists = data?.lists?.length || 0;
+    const totalProducts = data?.lists?.reduce((sum: number, l: any) => sum + (l.product_count || 0), 0) || 0;
+    const completedLists = data?.lists?.filter((l: any) => l.status === 'completed').length || 0;
+    const processingLists = data?.lists?.filter((l: any) => l.status === 'processing').length || 0;
 
     return (
-        <div className="catalogs-manager">
+        <div className="lists-manager">
             <div className="page-header">
-                <h2>📚 Gestión de Catálogos</h2>
-                <p className="subtitle">Sube, escanea y administra tus catálogos</p>
+                <h2>📚 Gestión de Listas</h2>
+                <p className="subtitle">Sube, escanea y administra tus listas de precios</p>
             </div>
 
             {/* Stats Dashboard */}
-            {totalCatalogs > 0 && (
+            {totalLists > 0 && (
                 <div className="stats-dashboard">
                     <div className="stat-card">
                         <div className="stat-icon">📚</div>
                         <div className="stat-content">
-                            <div className="stat-value">{totalCatalogs}</div>
-                            <div className="stat-label">Catálogos</div>
+                            <div className="stat-value">{totalLists}</div>
+                            <div className="stat-label">Listas</div>
                         </div>
                     </div>
                     <div className="stat-card">
@@ -117,15 +116,15 @@ export function CatalogsManagerPage({ onSelectCatalog }: CatalogsManagerProps) {
                     <div className="stat-card stat-success">
                         <div className="stat-icon">✅</div>
                         <div className="stat-content">
-                            <div className="stat-value">{completedCatalogs}</div>
+                            <div className="stat-value">{completedLists}</div>
                             <div className="stat-label">Procesados</div>
                         </div>
                     </div>
-                    {processingCatalogs > 0 && (
+                    {processingLists > 0 && (
                         <div className="stat-card stat-processing">
                             <div className="stat-icon">⏳</div>
                             <div className="stat-content">
-                                <div className="stat-value">{processingCatalogs}</div>
+                                <div className="stat-value">{processingLists}</div>
                                 <div className="stat-label">En proceso</div>
                             </div>
                         </div>
@@ -135,7 +134,7 @@ export function CatalogsManagerPage({ onSelectCatalog }: CatalogsManagerProps) {
 
             {/* Upload Section */}
             <div className="upload-section">
-                <h3>Agregar Nuevo Catálogo</h3>
+                <h3>Agregar Nueva Lista</h3>
 
                 <div className="upload-tabs">
                     <button
@@ -165,7 +164,7 @@ export function CatalogsManagerPage({ onSelectCatalog }: CatalogsManagerProps) {
                             disabled={!selectedFile || uploadMutation.isPending}
                             className="btn-primary"
                         >
-                            {uploadMutation.isPending ? 'Subiendo...' : 'Subir'}
+                            {uploadMutation.isPending ? 'Procesando ETL...' : 'Subir Lista'}
                         </button>
                     </div>
                 ) : (
@@ -186,32 +185,32 @@ export function CatalogsManagerPage({ onSelectCatalog }: CatalogsManagerProps) {
                 )}
             </div>
 
-            {/* Catalogs List */}
-            <div className="catalogs-list">
-                <h3>Catálogos ({totalCatalogs})</h3>
-                {data && data.catalogs.length > 0 ? (
-                    <div className="catalog-grid">
-                        {data.catalogs.map((catalog: any) => (
-                            <div key={catalog.id} className="catalog-card">
-                                <div className="catalog-header">
-                                    <h4>{catalog.name}</h4>
-                                    <span className={`status status-${catalog.status}`}>
-                                        {catalog.status}
+            {/* Lists */}
+            <div className="lists-list">
+                <h3>Listas de Precios ({totalLists})</h3>
+                {data && data.lists && data.lists.length > 0 ? (
+                    <div className="list-grid">
+                        {data.lists.map((list: any) => (
+                            <div key={list.id} className="list-card">
+                                <div className="list-header">
+                                    <h4>{list.name}</h4>
+                                    <span className={`status status-${list.status}`}>
+                                        {list.status}
                                     </span>
                                 </div>
-                                <div className="catalog-info">
-                                    <p>📦 Productos: {catalog.product_count}</p>
-                                    <p>📅 {new Date(catalog.created_at).toLocaleDateString()}</p>
+                                <div className="list-info">
+                                    <p>📦 Productos: {list.product_count}</p>
+                                    <p>📅 {new Date(list.created_at).toLocaleDateString()}</p>
                                 </div>
-                                <div className="catalog-actions">
+                                <div className="list-actions">
                                     <button
-                                        onClick={() => onSelectCatalog(catalog.id)}
+                                        onClick={() => onSelectList(list.id)}
                                         className="btn-view"
                                     >
                                         👁️ Ver Productos
                                     </button>
                                     <button
-                                        onClick={() => handleDeleteCatalog(catalog.id, catalog.name)}
+                                        onClick={() => handleDeleteList(list.id, list.name)}
                                         className="btn-delete"
                                         disabled={deleteMutation.isPending}
                                     >
@@ -224,7 +223,7 @@ export function CatalogsManagerPage({ onSelectCatalog }: CatalogsManagerProps) {
                 ) : (
                     <div className="empty-state">
                         <div className="empty-icon">📚</div>
-                        <p>Aún no hay catálogos</p>
+                        <p>Aún no hay listas</p>
                         <p className="hint">Sube un archivo o escanea con la cámara para empezar</p>
                     </div>
                 )}

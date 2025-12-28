@@ -249,7 +249,7 @@ async def get_mixed_listing_products(
             name=product.name,
             price=float(product.price) if product.price else None,
             catalog_id=product.catalog_id,
-            catalog_name=product.catalog.name,
+            catalog_name=product.PriceList.name,
             price_range_name=product.price_range.name if product.price_range else None,
             is_best_price=product.id in best_price_ids
         ))

@@ -91,8 +91,8 @@ async def compare_catalogs(
     
     # Verify catalogs exist and belong to user
     catalogs = db.query(Catalog).filter(
-        Catalog.id.in_(request.catalog_ids),
-        Catalog.user_id == user_id
+        PriceList.id.in_(request.catalog_ids),
+        PriceList.user_id == user_id
     ).all()
     
     if len(catalogs) != len(request.catalog_ids):
@@ -126,8 +126,8 @@ async def compare_catalogs(
             
             products_data.append(ProductComparisonItem(
                 product_id=product.id,
-                catalog_id=catalog.id,
-                catalog_name=catalog.name,
+                catalog_id=PriceList.id,
+                catalog_name=PriceList.name,
                 name=product.name,
                 price=float(product.price) if product.price else None,
                 is_best_price=member.is_best_price
@@ -219,8 +219,8 @@ async def get_match(
         
         products_data.append(ProductComparisonItem(
             product_id=product.id,
-            catalog_id=catalog.id,
-            catalog_name=catalog.name,
+            catalog_id=PriceList.id,
+            catalog_name=PriceList.name,
             name=product.name,
             price=float(product.price) if product.price else None,
             is_best_price=member.is_best_price

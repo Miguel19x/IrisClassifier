@@ -1,20 +1,23 @@
 """
-Gemini Vision Service for intelligent image analysis.
+Gemini Vision Service for intelligent document analysis.
 
-Uses Google's Gemini 2.0 Flash model for:
-- Extracting structured data from catalog images
+Uses Google's Gemini 1.5 Flash model via the google-genai SDK for:
+- Native PDF processing (no image conversion needed)
+- Extracting structured data from catalogs
 - Understanding product listings, prices, and descriptions
 - Handling various catalog formats automatically
+
+OPTIMIZED: Uses 1 API call per PDF instead of N calls per page.
 """
 import logging
-import base64
 import json
 import re
+import os
 from typing import List, Dict, Optional, Any
 from dataclasses import dataclass
 
-import google.generativeai as genai
-from google.generativeai.types import HarmCategory, HarmBlockThreshold
+from google import genai
+from google.genai import types
 
 from config import get_settings
 from services.rate_limiter import get_rate_limiter
@@ -23,10 +26,24 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 
 
+# Standard product categories based on common classification
+STANDARD_CATEGORIES = """
+Categorías estándar:
+- AUTOPARTES: Repuestos de vehículos (bases, bombas, cables, filtros, etc.)
+- ELECTRONICA: Dispositivos electrónicos
+- HOGAR: Artículos para el hogar
+- ALIMENTACION: Comida y bebidas
+- ROPA: Vestimenta y accesorios
+- HERRAMIENTAS: Herramientas manuales y eléctricas
+- OTROS: Si no encaja en ninguna categoría anterior
+"""
+
+
 @dataclass
 class ExtractedProduct:
-    """Product extracted from image analysis."""
+    """Product extracted from document analysis."""
     name: str
+    code: str = ""
     price: Optional[float] = None
     price_text: str = ""
     description: str = ""
@@ -41,52 +58,67 @@ class ExtractedProduct:
 
 class GeminiVisionService:
     """
-    Service for analyzing catalog images using Gemini Vision.
+    Service for analyzing catalogs using Gemini Vision.
     
-    Provides intelligent extraction of products from images,
-    understanding layout, tables, and text automatically.
+    Supports native PDF processing with Gemini 1.5 Flash,
+    reducing API calls from N (per page) to 1 (per document).
     """
     
-    EXTRACTION_PROMPT = """Analiza esta imagen de catálogo de productos y extrae TODOS los productos que puedas identificar.
+    # Optimized prompt for list extraction
+    EXTRACTION_PROMPT = """Actúa como un analista de datos experto en listas de precios.
 
-Para cada producto, extrae:
-1. **name**: Nombre completo del producto
-2. **price**: Precio numérico (solo el número, sin símbolos de moneda)
-3. **price_text**: Precio original como aparece en la imagen (ej: "$1,234.00")
-4. **description**: Descripción o detalles adicionales
-5. **brand**: Marca si está visible
-6. **category**: Categoría del producto si es identificable
-7. **additional_data**: Cualquier otra información relevante (códigos, referencias, etc.)
+Analiza esta lista de precios adjunta y extrae TODOS los productos que encuentres.
 
-IMPORTANTE:
-- Si no hay precio visible, usa null para price y "" para price_text
-- Extrae TODOS los productos visibles, no solo algunos
-- Si es una tabla, procesa cada fila como un producto
-- Mantén la precisión de los precios
+Para cada producto, extrae los siguientes campos:
+1. **code**: Código o referencia del producto (si existe)
+2. **name**: Nombre completo del producto
+3. **price**: Precio numérico (solo el número, sin símbolos de moneda)
+4. **price_text**: Precio original como aparece (ej: "$1,234.00", "199,32")
+5. **brand**: Marca del producto (si está visible)
+6. **category**: Clasifica usando estas categorías estándar:
+   - AUTOPARTES: Repuestos de vehículos
+   - ELECTRONICA: Dispositivos electrónicos
+   - HOGAR: Artículos para el hogar
+   - ALIMENTACION: Comida y bebidas
+   - HERRAMIENTAS: Herramientas
+   - OTROS: Si no encaja en ninguna
+7. **description**: Descripción visual o detalles adicionales
 
-Responde ÚNICAMENTE con un JSON válido en este formato exacto:
+REGLAS IMPORTANTES:
+- Extrae ABSOLUTAMENTE TODOS los productos, no solo algunos
+- Si es una tabla, cada fila es un producto
+- Si no hay precio, usa null para price y "" para price_text
+- Mantén la precisión exacta de los precios
+- El código puede estar en una columna separada (ej: "CODIGO", "REF", "SKU")
+
+Responde ÚNICAMENTE con JSON válido en este formato:
 {
     "products": [
         {
-            "name": "Nombre del producto",
-            "price": 123.45,
-            "price_text": "$123.45",
-            "description": "Descripción opcional",
-            "brand": "Marca opcional",
-            "category": "Categoría opcional",
-            "additional_data": {"key": "value"}
+            "code": "3170",
+            "name": "ARBOL DE LEVA 4JB1/4JH1T NHR/NKR/JAC",
+            "price": 98.01,
+            "price_text": "98,01",
+            "brand": "CAP",
+            "category": "AUTOPARTES",
+            "description": "Para vehículos NHR/NKR/JAC"
         }
     ],
     "catalog_info": {
-        "type": "price_list|catalog|menu|automotive|other",
-        "total_products_found": 5,
-        "confidence": 0.95
+        "type": "price_list",
+        "company": "Nombre de la empresa si es visible",
+        "date": "Fecha del catálogo si es visible",
+        "total_products_found": 50,
+        "pages_analyzed": 1
     }
 }"""
 
+    # Model to use - Gemini 2.5 Flash (supports native PDF upload)
+    MODEL_NAME = "gemini-2.5-flash"
+
     def __init__(self):
         """Initialize Gemini Vision service."""
-        self._model = None
+        self._client = None
         self._configured = False
         self._rate_limiter = get_rate_limiter()
         
@@ -94,7 +126,7 @@ Responde ÚNICAMENTE con un JSON válido en este formato exacto:
         """Ensure Gemini API is configured."""
         if self._configured:
             return
-            
+        
         api_key = settings.gemini_api_key
         if not api_key:
             raise ValueError(
@@ -102,23 +134,90 @@ Responde ÚNICAMENTE con un JSON válido en este formato exacto:
                 "Get a free key at https://ai.google.dev"
             )
         
-        genai.configure(api_key=api_key)
-        self._model = genai.GenerativeModel(
-            model_name=settings.gemini_model,
-            generation_config={
-                "temperature": 0.1,  # Low temperature for consistent extraction
-                "top_p": 0.95,
-                "max_output_tokens": 8192,
-            },
-            safety_settings={
-                HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
-                HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
-                HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
-                HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
-            }
-        )
+        # Set environment variable for the SDK
+        os.environ["GEMINI_API_KEY"] = api_key
+        
+        # Create client
+        self._client = genai.Client()
         self._configured = True
-        logger.info(f"Gemini Vision configured with model: {settings.gemini_model}")
+        logger.info(f"Gemini Vision configured with model: {self.MODEL_NAME}")
+    
+    async def analyze_pdf(
+        self, 
+        pdf_data: bytes,
+        custom_prompt: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Analyze an entire PDF document natively.
+        
+        This is the optimized method - uses 1 API call for the entire PDF
+        instead of converting pages to images.
+        
+        Args:
+            pdf_data: Raw PDF bytes
+            custom_prompt: Optional custom prompt to use
+            
+        Returns:
+            Dictionary with extracted products and catalog info
+        """
+        self._ensure_configured()
+        
+        # Execute with rate limiting and retry logic
+        return await self._rate_limiter.execute_with_retry(
+            self._analyze_pdf_internal,
+            pdf_data,
+            custom_prompt
+        )
+    
+    async def _analyze_pdf_internal(
+        self,
+        pdf_data: bytes,
+        custom_prompt: Optional[str]
+    ) -> Dict[str, Any]:
+        """
+        Internal method to analyze PDF (called by rate limiter).
+        """
+        prompt = custom_prompt or self.EXTRACTION_PROMPT
+        
+        try:
+            # Create PDF part for the API
+            pdf_part = types.Part.from_bytes(
+                data=pdf_data,
+                mime_type="application/pdf"
+            )
+            
+            logger.info(
+                "gemini_pdf_analysis_started",
+                extra={"pdf_size_mb": round(len(pdf_data) / 1024 / 1024, 2)}
+            )
+            
+            # Generate response - single API call for entire PDF
+            response = self._client.models.generate_content(
+                model=self.MODEL_NAME,
+                contents=[prompt, pdf_part],
+                config=types.GenerateContentConfig(
+                    temperature=0.1,  # Low for consistent extraction
+                    max_output_tokens=65536,  # Large output for many products
+                )
+            )
+            
+            # Parse response
+            result = self._parse_response(response.text)
+            
+            products_count = len(result.get("products", []))
+            logger.info(
+                "gemini_pdf_analysis_completed",
+                extra={
+                    "products_found": products_count,
+                    "catalog_type": result.get("catalog_info", {}).get("type", "unknown")
+                }
+            )
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Gemini PDF analysis failed: {e}", exc_info=True)
+            raise
     
     async def analyze_image(
         self, 
@@ -141,7 +240,6 @@ Responde ÚNICAMENTE con un JSON válido en este formato exacto:
         """
         self._ensure_configured()
         
-        # Execute with rate limiting and retry logic
         return await self._rate_limiter.execute_with_retry(
             self._analyze_image_internal,
             image_data,
@@ -155,35 +253,24 @@ Responde ÚNICAMENTE con un JSON válido en este formato exacto:
         mime_type: str,
         custom_prompt: Optional[str]
     ) -> Dict[str, Any]:
-        """
-        Internal method to analyze image (called by rate limiter).
-        
-        Args:
-            image_data: Raw image bytes
-            mime_type: MIME type of the image
-            custom_prompt: Optional custom prompt to use
-            
-        Returns:
-            Dictionary with extracted products and catalog info
-        """
+        """Internal method to analyze image."""
         prompt = custom_prompt or self.EXTRACTION_PROMPT
         
         try:
-            # Create image part for the API
-            image_part = {
-                "inline_data": {
-                    "mime_type": mime_type,
-                    "data": base64.b64encode(image_data).decode("utf-8")
-                }
-            }
-            
-            # Generate response
-            response = await self._model.generate_content_async(
-                [prompt, image_part],
-                request_options={"timeout": settings.gemini_timeout}
+            image_part = types.Part.from_bytes(
+                data=image_data,
+                mime_type=mime_type
             )
             
-            # Parse response
+            response = self._client.models.generate_content(
+                model=self.MODEL_NAME,
+                contents=[prompt, image_part],
+                config=types.GenerateContentConfig(
+                    temperature=0.1,
+                    max_output_tokens=8192,
+                )
+            )
+            
             result = self._parse_response(response.text)
             
             logger.info(
@@ -203,19 +290,11 @@ Responde ÚNICAMENTE con un JSON válido en este formato exacto:
     def _parse_response(self, response_text: str) -> Dict[str, Any]:
         """
         Parse Gemini response text to extract JSON.
-        
-        Args:
-            response_text: Raw response from Gemini
-            
-        Returns:
-            Parsed dictionary with products
         """
-        # Try to extract JSON from response
         text = response_text.strip()
         
         # Remove markdown code blocks if present
         if text.startswith("```"):
-            # Find the JSON content between code blocks
             match = re.search(r"```(?:json)?\s*\n?(.*?)\n?```", text, re.DOTALL)
             if match:
                 text = match.group(1).strip()
@@ -243,12 +322,7 @@ Responde ÚNICAMENTE con un JSON válido en este formato exacto:
         """
         Analyze multiple images in a batch with rate limiting.
         
-        Args:
-            images: List of (image_data, mime_type) tuples
-            custom_prompt: Optional custom prompt to use
-            
-        Returns:
-            List of analysis results, one per image
+        Note: For PDFs, use analyze_pdf() instead for better efficiency.
         """
         results = []
         
@@ -261,38 +335,15 @@ Responde ÚNICAMENTE con un JSON válido en este formato exacto:
             try:
                 result = await self.analyze_image(image_data, mime_type, custom_prompt)
                 results.append(result)
-                
-                logger.debug(
-                    "gemini_batch_image_processed",
-                    extra={"image": idx, "total": len(images)}
-                )
-                
             except Exception as e:
-                logger.warning(
-                    f"Failed to analyze image {idx}/{len(images)}: {e}"
-                )
-                # Add empty result to maintain index alignment
+                logger.warning(f"Failed to analyze image {idx}/{len(images)}: {e}")
                 results.append({"products": [], "catalog_info": {"error": str(e)}})
-        
-        logger.info(
-            "gemini_batch_processing_completed",
-            extra={
-                "total_images": len(images),
-                "successful": sum(1 for r in results if r.get("products"))
-            }
-        )
         
         return results
     
     def extract_products(self, analysis_result: Dict[str, Any]) -> List[ExtractedProduct]:
         """
         Convert analysis result to list of ExtractedProduct objects.
-        
-        Args:
-            analysis_result: Result from analyze_image
-            
-        Returns:
-            List of ExtractedProduct objects
         """
         products = []
         
@@ -304,6 +355,7 @@ Responde ÚNICAMENTE con un JSON válido en este formato exacto:
                 
                 product = ExtractedProduct(
                     name=str(item.get("name", "")).strip(),
+                    code=str(item.get("code", "")).strip(),
                     price=price,
                     price_text=str(item.get("price_text", "")).strip(),
                     description=str(item.get("description", "")).strip(),
@@ -312,7 +364,7 @@ Responde ÚNICAMENTE con un JSON válido en este formato exacto:
                     additional_data=item.get("additional_data", {})
                 )
                 
-                if product.name:  # Only add products with a name
+                if product.name:
                     products.append(product)
                     
             except Exception as e:

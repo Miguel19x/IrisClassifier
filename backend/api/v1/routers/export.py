@@ -13,7 +13,7 @@ from sqlalchemy import select
 import pandas as pd
 
 from database.connection import get_db
-from database.models import Catalog, Product, PriceRange
+from database.models import PriceList, Product, PriceRange
 from core.exceptions import NotFoundError
 
 logger = logging.getLogger(__name__)
@@ -34,7 +34,7 @@ def export_catalog(
     Returns a downloadable file.
     """
     # Get catalog
-    catalog = db.get(Catalog, catalog_id)
+    catalog = db.get(PriceList, catalog_id)
     if not catalog:
         raise NotFoundError("Catalog", catalog_id)
     
@@ -109,7 +109,7 @@ def export_catalog(
     else:  # json
         return {
             "catalog_id": catalog_id,
-            "catalog_name": catalog.name,
+            "catalog_name": PriceList.name,
             "total_products": len(data),
             "exported_at": pd.Timestamp.now().isoformat(),
             "products": data

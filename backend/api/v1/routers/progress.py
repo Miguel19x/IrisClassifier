@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
 from database.connection import get_db
-from database.models import Catalog, ProcessingLog
+from database.models import PriceList, ProcessingLog
 from api.dependencies import get_current_user_id
 
 logger = logging.getLogger(__name__)
@@ -39,7 +39,7 @@ async def get_catalog_progress(
     db: Session = Depends(get_db)
 ):
     """
-    Get processing progress for a catalog.
+    Get processing progress for a PriceList.
     
     Returns real-time progress information including:
     - Pages processed / total pages
@@ -48,11 +48,11 @@ async def get_catalog_progress(
     - Progress percentage
     """
     # Get catalog and verify ownership
-    catalog = db.get(Catalog, catalog_id)
+    catalog = db.get(PriceList, catalog_id)
     if not catalog:
         raise HTTPException(status_code=404, detail="Catálogo no encontrado")
     
-    if catalog.user_id != user_id:
+    if PriceList.user_id != user_id:
         raise HTTPException(status_code=403, detail="No autorizado")
     
     # Get latest processing log
@@ -63,7 +63,7 @@ async def get_catalog_progress(
     if not log:
         return ProgressResponse(
             catalog_id=catalog_id,
-            status=catalog.status,
+            status=PriceList.status,
             total_pages=0,
             pages_processed=0,
             current_batch=0,
