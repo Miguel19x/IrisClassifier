@@ -26,7 +26,7 @@ def list_products(
     min_price: Optional[float] = Query(None, ge=0, description="Minimum price"),
     max_price: Optional[float] = Query(None, ge=0, description="Maximum price"),
     page: int = Query(1, ge=1, description="Page number"),
-    page_size: int = Query(50, ge=1, le=100, description="Items per page"),
+    page_size: int = Query(200, ge=1, le=20000, description="Items per page"),
     db: Session = Depends(get_db)
 ):
     """
@@ -45,6 +45,9 @@ def list_products(
         query = query.where(Product.price >= min_price)
     if max_price is not None:
         query = query.where(Product.price <= max_price)
+    
+    # Order by row_index to maintain original document order
+    query = query.order_by(Product.row_index.asc())
     
     # Get total count
     count_query = select(func.count(Product.id))

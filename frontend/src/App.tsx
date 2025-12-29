@@ -1,62 +1,56 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { useState } from 'react';
-import './App.css';
-import { ProductsPage } from './pages/Products';
+import { lazy, Suspense, useState, useEffect } from 'react';
+import './index.css';
 import { LoginPage } from './pages/Login';
-import { ListsManagerPage } from './pages/ListsManager';
-import { ListingsManagementPage } from './pages/ListingsManagement';
 import { AuthProvider, useAuth } from './hooks/useAuth';
+import { Header } from './components/layout/Header';
+import { Footer } from './components/layout/Footer';
+import { Toaster } from './components/ui/sonner';
+import { TooltipProvider } from './components/ui/tooltip';
 
-// Create a client
+// Lazy load pages for better performance (as per PERFORMANCE_TUNING.md)
+const ListsManagerPage = lazy(() => import('./pages/ListsManager').then(m => ({ default: m.ListsManagerPage })));
+const ProductsPage = lazy(() => import('./pages/Products').then(m => ({ default: m.ProductsPage })));
+const ListingsManagementPage = lazy(() => import('./pages/ListingsManagement').then(m => ({ default: m.ListingsManagementPage })));
+
+// Create a client with optimized cache settings (as per PERFORMANCE_TUNING.md)
 const queryClient = new QueryClient({
     defaultOptions: {
         queries: {
             refetchOnWindowFocus: false,
             retry: 1,
+            staleTime: 5 * 60 * 1000, // 5 minutes
+            gcTime: 30 * 60 * 1000, // 30 minutes (formerly cacheTime)
         },
     },
 });
 
 type Page = 'lists' | 'products' | 'management';
 
-function Navigation({ currentPage, onNavigate }: { currentPage: Page; onNavigate: (page: Page) => void }) {
-    const { user, logout } = useAuth();
-
+function LoadingSpinner() {
     return (
-        <nav className="navigation">
-            <div className="nav-left">
-                <button
-                    className={`nav-item ${currentPage === 'lists' ? 'active' : ''}`}
-                    onClick={() => onNavigate('lists')}
-                >
-                    📚 Listas
-                </button>
-                <button
-                    className={`nav-item ${currentPage === 'products' ? 'active' : ''}`}
-                    onClick={() => onNavigate('products')}
-                >
-                    📦 Productos
-                </button>
-                <button
-                    className={`nav-item ${currentPage === 'management' ? 'active' : ''}`}
-                    onClick={() => onNavigate('management')}
-                >
-                    📋 Gestión Listados
-                </button>
+        <div className="flex items-center justify-center min-h-[400px]">
+            <div className="flex items-center gap-3 text-muted-foreground">
+                <div className="h-8 w-8 border-4 border-primary/30 border-t-primary rounded-full animate-spin" />
+                <span>Cargando...</span>
             </div>
-            <div className="nav-right">
-                <span className="user-email">{user?.email}</span>
-                <button className="btn-logout" onClick={logout}>
-                    🚪 Salir
-                </button>
-            </div>
-        </nav>
+        </div>
     );
 }
 
 function MainApp() {
+    const { user, logout } = useAuth();
     const [currentPage, setCurrentPage] = useState<Page>('lists');
-    const [selectedListId, setSelectedListId] = useState<number | undefined>(undefined);
+    const [selectedListId, setSelectedListId] = useState<number | null>(null);
+
+    // Listen for list selection events from Products page
+    useEffect(() => {
+        const handleSelectList = (event: CustomEvent<number>) => {
+            setSelectedListId(event.detail);
+        };
+        window.addEventListener('selectList', handleSelectList as EventListener);
+        return () => window.removeEventListener('selectList', handleSelectList as EventListener);
+    }, []);
 
     const handleSelectList = (listId: number) => {
         setSelectedListId(listId);
@@ -65,29 +59,29 @@ function MainApp() {
 
     const handleNavigate = (page: Page) => {
         if (page !== 'products') {
-            setSelectedListId(undefined);  // Clear selection when leaving products
+            setSelectedListId(null);  // Clear selection when leaving products
         }
         setCurrentPage(page);
     };
 
     return (
-        <div className="app">
-            <header className="app-header">
-                <h1>🌈 IrisClassifier</h1>
-                <p>Clasificación de Productos con IA</p>
-            </header>
+        <div className="min-h-screen flex flex-col bg-background">
+            <Header
+                userEmail={user?.email}
+                currentPage={currentPage}
+                onNavigate={handleNavigate}
+                onLogout={logout}
+            />
 
-            <Navigation currentPage={currentPage} onNavigate={handleNavigate} />
-
-            <main className="app-main">
-                {currentPage === 'lists' && <ListsManagerPage onSelectList={handleSelectList} />}
-                {currentPage === 'products' && <ProductsPage listId={selectedListId} />}
-                {currentPage === 'management' && <ListingsManagementPage />}
+            <main className="flex-1 pt-16">
+                <Suspense fallback={<LoadingSpinner />}>
+                    {currentPage === 'lists' && <ListsManagerPage onSelectList={handleSelectList} />}
+                    {currentPage === 'products' && <ProductsPage selectedListId={selectedListId} />}
+                    {currentPage === 'management' && <ListingsManagementPage />}
+                </Suspense>
             </main>
 
-            <footer className="app-footer">
-                <p>Desarrollado con React + Vite + Capacitor</p>
-            </footer>
+            <Footer />
         </div>
     );
 }
@@ -95,9 +89,12 @@ function MainApp() {
 function App() {
     return (
         <QueryClientProvider client={queryClient}>
-            <AuthProvider>
-                <AuthGuard />
-            </AuthProvider>
+            <TooltipProvider>
+                <AuthProvider>
+                    <AuthGuard />
+                    <Toaster richColors position="top-right" />
+                </AuthProvider>
+            </TooltipProvider>
         </QueryClientProvider>
     );
 }
@@ -107,8 +104,11 @@ function AuthGuard() {
 
     if (isLoading) {
         return (
-            <div className="loading-screen">
-                <div className="loading-spinner">⏳ Cargando...</div>
+            <div className="min-h-screen flex items-center justify-center bg-background">
+                <div className="flex flex-col items-center gap-4">
+                    <div className="h-12 w-12 border-4 border-primary/30 border-t-primary rounded-full animate-spin" />
+                    <p className="text-muted-foreground">Cargando...</p>
+                </div>
             </div>
         );
     }

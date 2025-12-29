@@ -82,7 +82,7 @@ class PriceList(Base):
         processed_at: Processing completion timestamp
         product_count: Denormalized count of products
     """
-    __tablename__ = "catalogs"  # Table name for DB compatibility
+    __tablename__ = "lists"  # Migrated from 'catalogs'
     
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
@@ -103,12 +103,13 @@ class PriceList(Base):
     user: Mapped["User"] = relationship("User", back_populates="price_lists")
     products: Mapped[List["Product"]] = relationship("Product", back_populates="price_list", cascade="all, delete-orphan")
     processing_logs: Mapped[List["ProcessingLog"]] = relationship("ProcessingLog", back_populates="price_list", cascade="all, delete-orphan")
+    master_products: Mapped[List["MasterProduct"]] = relationship("MasterProduct", back_populates="source_list", cascade="all, delete-orphan")
     
     # Indexes
     __table_args__ = (
-        Index("idx_catalogs_user_id", "user_id"),
-        Index("idx_catalogs_status", "status"),
-        Index("idx_catalogs_created", "created_at"),
+        Index("idx_lists_user_id", "user_id"),
+        Index("idx_lists_status", "status"),
+        Index("idx_lists_created", "created_at"),
     )
 
 
@@ -209,9 +210,10 @@ class Product(Base):
     __tablename__ = "products"
     
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    list_id: Mapped[int] = mapped_column(Integer, ForeignKey("catalogs.id", ondelete="CASCADE"), nullable=False)
+    list_id: Mapped[int] = mapped_column(Integer, ForeignKey("lists.id", ondelete="CASCADE"), nullable=False)
     category_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("categories.id", ondelete="SET NULL"))
     price_range_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("price_ranges.id", ondelete="SET NULL"))
+    row_index: Mapped[int] = mapped_column(Integer, default=0, index=True)  # Sequential order within list
     
     # Core product fields
     code: Mapped[Optional[str]] = mapped_column(String(100))
@@ -234,6 +236,11 @@ class Product(Base):
         CheckConstraint("classification_method IN ('pending', 'ai', 'fallback', 'manual')"),
         default="pending"
     )
+    review_status: Mapped[str] = mapped_column(
+        String(20),
+        CheckConstraint("review_status IN ('pending', 'confirmed', 'rejected')"),
+        default="pending"
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), onupdate=func.now())
     
@@ -245,7 +252,7 @@ class Product(Base):
     
     # Indexes for performance
     __table_args__ = (
-        Index("idx_products_catalog", "list_id"),
+        Index("idx_products_list", "list_id"),
         Index("idx_products_price_range", "price_range_id"),
         Index("idx_products_price", "price"),
         Index("idx_products_catalog_price", "list_id", "price"),
@@ -312,7 +319,7 @@ class ProcessingLog(Base):
     __tablename__ = "processing_logs"
     
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    list_id: Mapped[int] = mapped_column(Integer, ForeignKey("catalogs.id", ondelete="CASCADE"), nullable=False)
+    list_id: Mapped[int] = mapped_column(Integer, ForeignKey("lists.id", ondelete="CASCADE"), nullable=False)
     status: Mapped[str] = mapped_column(
         String(20),
         CheckConstraint("status IN ('started', 'extracting', 'classifying', 'completed', 'failed')"),
@@ -484,7 +491,7 @@ class MasterProduct(Base):
     )
     
     # Source tracking
-    source_list_id: Mapped[int] = mapped_column(Integer, ForeignKey("catalogs.id", ondelete="CASCADE"), nullable=False)
+    source_list_id: Mapped[int] = mapped_column(Integer, ForeignKey("lists.id", ondelete="CASCADE"), nullable=False)
     original_list_name: Mapped[str] = mapped_column(String(255), nullable=False)
     
     # Pricing for dual views
@@ -497,7 +504,7 @@ class MasterProduct(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), onupdate=func.now())
     
     # Relationships
-    source_list: Mapped["PriceList"] = relationship("PriceList", backref="master_products")
+    source_list: Mapped["PriceList"] = relationship("PriceList", back_populates="master_products")
     
     # Indexes
     __table_args__ = (

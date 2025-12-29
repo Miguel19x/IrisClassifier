@@ -91,14 +91,14 @@ class TestProductsAPI:
         assert data["page"] == 1
 
 
-class TestCatalogsAPI:
-    """Test catalogs endpoints."""
+class TestListsAPI:
+    """Test lists endpoints."""
     
     def test_list_empty(self):
-        """Test listing catalogs when empty."""
-        response = client.get("/api/v1/catalogs")
+        """Test listing price lists when empty."""
+        response = client.get("/api/v1/lists")
         
         assert response.status_code == 200
         data = response.json()
-        assert data["catalogs"] == []
+        assert data["lists"] == []
         assert data["total"] == 0

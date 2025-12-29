@@ -68,20 +68,20 @@ describe('API Service', () => {
             const mockData = { id: 1, name: 'Test' };
             vi.spyOn(api, 'get').mockResolvedValue({ data: mockData } as any);
 
-            const response = await api.get('/catalogs');
+            const response = await api.get('/lists');
 
-            expect(api.get).toHaveBeenCalledWith('/catalogs');
+            expect(api.get).toHaveBeenCalledWith('/lists');
             expect(response.data).toEqual(mockData);
         });
 
         it('should make POST requests', async () => {
-            const mockData = { id: 1, name: 'New Catalog' };
-            const postData = { name: 'New Catalog' };
+            const mockData = { id: 1, name: 'New List' };
+            const postData = { name: 'New List' };
             vi.spyOn(api, 'post').mockResolvedValue({ data: mockData } as any);
 
-            const response = await api.post('/catalogs', postData);
+            const response = await api.post('/lists', postData);
 
-            expect(api.post).toHaveBeenCalledWith('/catalogs', postData);
+            expect(api.post).toHaveBeenCalledWith('/lists', postData);
             expect(response.data).toEqual(mockData);
         });
 

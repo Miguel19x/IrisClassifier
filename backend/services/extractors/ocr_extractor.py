@@ -16,7 +16,7 @@ import re
 import pandas as pd
 
 from services.extractors.base import BaseExtractor, RawProduct
-from services.catalog_schema_detector import CatalogSchemaDetector, CatalogType
+from services.list_schema_detector import ListSchemaDetector, ListType
 from core.exceptions import FileProcessingError
 
 logger = logging.getLogger(__name__)
@@ -144,7 +144,7 @@ class OCRExtractor(BaseExtractor):
             rows = table_data[1:]
             
             # Detect schema
-            detector = CatalogSchemaDetector()
+            detector = ListSchemaDetector()
             schema = detector.detect(headers, rows[:5])
             
             logger.info(
@@ -157,7 +157,7 @@ class OCRExtractor(BaseExtractor):
             )
             
             # Extract products with brand detection for automotive catalogs
-            if schema.schema_type == CatalogType.AUTOMOTIVE_PARTS:
+            if schema.schema_type == ListType.AUTOMOTIVE_PARTS:
                 return await self._extract_automotive_with_brands(headers, rows, schema, original_image)
             else:
                 return self._extract_price_list(headers, rows, schema)

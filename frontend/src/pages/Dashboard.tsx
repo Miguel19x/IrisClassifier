@@ -5,7 +5,7 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../services/api';
 
-interface List {
+interface PriceList {
     id: number;
     name: string;
     status: string;
@@ -14,7 +14,7 @@ interface List {
 }
 
 interface ListResponse {
-    catalogs: List[];  // Backend still uses 'catalogs' field
+    lists: PriceList[];
     total: number;
     page: number;
     page_size: number;
@@ -26,7 +26,7 @@ export default function Dashboard() {
     const { data, isLoading, error } = useQuery<ListResponse>({
         queryKey: ['lists', page],
         queryFn: async () => {
-            const response = await api.get(`/catalogs?page=${page}&page_size=10`);
+            const response = await api.get(`/lists?page=${page}&page_size=10`);
             return response.data;
         },
     });
@@ -47,7 +47,7 @@ export default function Dashboard() {
         );
     }
 
-    const lists = data?.catalogs || [];
+    const lists = data?.lists || [];
 
     return (
         <div className="container mx-auto px-4 py-8">

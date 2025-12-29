@@ -60,7 +60,7 @@ async def process_list_background(
         
         # Create processing log
         log = ProcessingLog(
-            catalog_id=list_id,
+            list_id=list_id,
             status="started"
         )
         db.add(log)
@@ -123,7 +123,7 @@ async def process_list_background(
             log.progress_message = f"ETL completado: {confirmed} confirmados, {pending_review} pendientes de revisión"
             
             # Also save to legacy products table for backward compatibility
-            for raw_product in raw_products:
+            for idx, raw_product in enumerate(raw_products, start=1):
                 # Simple price parsing
                 price_str = ''.join(c for c in raw_product.price_text if c.isdigit() or c in '.,')
                 price_str = price_str.replace(',', '.')
@@ -138,13 +138,14 @@ async def process_list_background(
                 brand = columns.get('brand', '')
                 
                 product = Product(
-                    catalog_id=list_id,
+                    list_id=list_id,
+                    row_index=idx,  # Sequential ordering
                     code=code if code else None,
                     name=raw_product.name,
                     brand=brand if brand else None,
                     price=price,
                     original_text=raw_product.raw_line,
-                    catalog_type=raw_product.catalog_type,
+                    list_type=raw_product.catalog_type,
                     structured_data=raw_product.columns if raw_product.columns else None,
                     classification_method='ai',
                     confidence_score=1.0
@@ -158,7 +159,7 @@ async def process_list_background(
                 PriceRange.user_id == user_id
             ).all()
             
-            products = db.query(Product).filter(Product.catalog_id == list_id).all()
+            products = db.query(Product).filter(Product.list_id == list_id).all()
             price_based_products = [p for p in products if p.price is not None]
             
             if price_ranges and price_based_products:
@@ -260,8 +261,8 @@ async def upload_list(
             detail=f"Unsupported file type: {mime_type}. Supported: PDF, Excel, Images"
         )
     
-    # Create list record (using Catalog model for now, can rename later)
-    list_record = Catalog(
+    # Create list record (using PriceList model for now, can rename later)
+    list_record = PriceList(
         user_id=user_id,
         name=file.filename or "Sin nombre",
         source_file=file.filename,
@@ -294,7 +295,7 @@ async def upload_list(
     )
     
     return UploadResponse(
-        catalog_id=list_record.id,
+        list_id=list_record.id,
         message="Lista subida exitosamente. Procesamiento ETL iniciado.",
         status="processing"
     )

@@ -13,7 +13,7 @@ from decimal import Decimal
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_
 
-from database.models import MasterProduct, CodeRegistry, Catalog
+from database.models import MasterProduct, CodeRegistry, PriceList
 from services.extractors.base import RawProduct
 
 logger = logging.getLogger(__name__)
@@ -90,12 +90,21 @@ class ETLIntelligentService:
         """Transform a single raw product through the 3 layers."""
         
         # Layer 1: Structural Analysis (already done by extractor)
-        # We receive raw.name, raw.price_text, raw.raw_line
+        # We receive raw.name, raw.price_text, raw.raw_line, raw.columns
         
-        # Extract basic fields
+        # Extract basic fields - prioritize pre-extracted column data from parser
         description = raw.name or "Unknown Product"
-        brand = self._extract_brand(raw.raw_line)
-        raw_code = self._extract_code(raw.raw_line, description, brand)
+        columns = raw.columns or {}
+        
+        # Use pre-extracted columns first (from ExcelParser), fallback to regex
+        brand = columns.get('brand', '').strip() if columns.get('brand') else None
+        if not brand:
+            brand = self._extract_brand(raw.raw_line)
+        
+        raw_code = columns.get('code', '').strip() if columns.get('code') else None
+        if not raw_code:
+            raw_code = self._extract_code(raw.raw_line, description, brand)
+        
         price = self._parse_price(raw.price_text)
         
         # Layer 2: Historical Validation

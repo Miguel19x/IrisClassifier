@@ -1,26 +1,25 @@
 /**
  * Componente de página de Captura de Cámara.
  * 
- * Permite a los usuarios tomar fotos de catálogos usando la cámara del dispositivo.
+ * Permite a los usuarios tomar fotos de listas de precios usando la cámara del dispositivo.
  */
 import { useState } from 'react';
 import { useCamera } from '../hooks/useCamera';
-import { useUploadCatalog } from '../services/queries';
+import { useUploadList } from '../services/queries';
 import './Camera.css';
 
 export function CameraPage() {
     const { takePhoto, pickFromGallery, loading: cameraLoading, error: cameraError } = useCamera();
-    const uploadMutation = useUploadCatalog();
+    const uploadMutation = useUploadList();
     const [capturedImage, setCapturedImage] = useState<string | null>(null);
-    const [catalogName, setCatalogName] = useState('');
+    const [listName, setListName] = useState('');
 
     const handleTakePhoto = async () => {
         const photoUrl = await takePhoto();
         if (photoUrl) {
             setCapturedImage(photoUrl);
-            // Generate default name with timestamp
             const timestamp = new Date().toLocaleString();
-            setCatalogName(`Catálogo de Cámara - ${timestamp}`);
+            setListName(`Lista de Cámara - ${timestamp}`);
         }
     };
 
@@ -29,7 +28,7 @@ export function CameraPage() {
         if (photoUrl) {
             setCapturedImage(photoUrl);
             const timestamp = new Date().toLocaleString();
-            setCatalogName(`Imagen de Galería - ${timestamp}`);
+            setListName(`Imagen de Galería - ${timestamp}`);
         }
     };
 
@@ -37,16 +36,14 @@ export function CameraPage() {
         if (!capturedImage) return;
 
         try {
-            // Convert data URL to File
             const response = await fetch(capturedImage);
             const blob = await response.blob();
-            const file = new File([blob], `${catalogName}.jpg`, { type: 'image/jpeg' });
+            const file = new File([blob], `${listName}.jpg`, { type: 'image/jpeg' });
 
             await uploadMutation.mutateAsync(file);
 
-            // Reset state
             setCapturedImage(null);
-            setCatalogName('');
+            setListName('');
             alert('¡Foto subida exitosamente! Procesamiento iniciado.');
         } catch (err) {
             alert('Error al subir: ' + (err instanceof Error ? err.message : 'Error desconocido'));
@@ -55,14 +52,14 @@ export function CameraPage() {
 
     const handleRetake = () => {
         setCapturedImage(null);
-        setCatalogName('');
+        setListName('');
     };
 
     return (
         <div className="camera-page">
             <div className="page-header">
                 <h2>📸 Captura de Cámara</h2>
-                <p className="subtitle">Toma una foto de tu catálogo para subir</p>
+                <p className="subtitle">Toma una foto de tu lista de precios para subir</p>
             </div>
 
             {cameraError && (
@@ -77,7 +74,7 @@ export function CameraPage() {
                         <div className="action-card">
                             <div className="icon-large">📷</div>
                             <h3>Tomar Foto</h3>
-                            <p>Usa la cámara de tu dispositivo para capturar una página del catálogo</p>
+                            <p>Usa la cámara de tu dispositivo para capturar una página de la lista</p>
                             <button
                                 onClick={handleTakePhoto}
                                 disabled={cameraLoading}
@@ -109,20 +106,20 @@ export function CameraPage() {
                         <div className="preview-container">
                             <img
                                 src={capturedImage}
-                                alt="Catálogo capturado"
+                                alt="Lista capturada"
                                 className="preview-image"
                             />
                         </div>
 
                         <div className="preview-controls">
                             <div className="form-group">
-                                <label htmlFor="catalog-name">Nombre del Catálogo</label>
+                                <label htmlFor="list-name">Nombre de la Lista</label>
                                 <input
-                                    id="catalog-name"
+                                    id="list-name"
                                     type="text"
-                                    value={catalogName}
-                                    onChange={(e) => setCatalogName(e.target.value)}
-                                    placeholder="Ingresa el nombre del catálogo"
+                                    value={listName}
+                                    onChange={(e) => setListName(e.target.value)}
+                                    placeholder="Ingresa el nombre de la lista"
                                     className="name-input"
                                 />
                             </div>
@@ -138,7 +135,7 @@ export function CameraPage() {
                                 <button
                                     onClick={handleUpload}
                                     className="btn-primary"
-                                    disabled={!catalogName.trim() || uploadMutation.isPending}
+                                    disabled={!listName.trim() || uploadMutation.isPending}
                                 >
                                     {uploadMutation.isPending ? 'Subiendo...' : '📤 Subir'}
                                 </button>
@@ -155,7 +152,7 @@ export function CameraPage() {
                     <li>Mantén la cámara estable para evitar desenfoque</li>
                     <li>Captura toda la página o lista de productos</li>
                     <li>Evita sombras y reflejos</li>
-                    <li>Toma fotos en modo horizontal para catálogos anchos</li>
+                    <li>Toma fotos en modo horizontal para listas anchas</li>
                 </ul>
             </div>
         </div>

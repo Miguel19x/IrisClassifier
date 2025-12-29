@@ -1,7 +1,7 @@
 """
-Catalog Schema Detector.
+List Schema Detector.
 
-Automatically detects the type and structure of uploaded catalogs.
+Automatically detects the type and structure of uploaded price lists.
 Supports both heuristic-based detection and optional AI-powered classification.
 """
 import logging
@@ -13,23 +13,23 @@ from enum import Enum
 logger = logging.getLogger(__name__)
 
 
-class CatalogType(str, Enum):
-    """Supported catalog types."""
-    PRICE_LIST = "price_list"  # Traditional name|price catalogs
+class ListType(str, Enum):
+    """Supported list types."""
+    PRICE_LIST = "price_list"  # Traditional name|price lists
     AUTOMOTIVE_PARTS = "automotive_parts"  # Vehicle parts with brand/model/year
-    INVENTORY = "inventory"  # Stock/warehouse catalogs
+    INVENTORY = "inventory"  # Stock/warehouse lists
     ELECTRONICS = "electronics"  # Electronic components
     UNKNOWN = "unknown"
 
 
 @dataclass
 class ColumnDefinition:
-    """Definition of a catalog column."""
+    """Definition of a list column."""
     name: str
     column_type: str  # "text", "price", "year", "code", "numeric"
     is_key: bool = False  # Is this a primary identifier column?
     is_brand: bool = False  # Is this a brand/manufacturer column?
-    sub_columns: List[str] = None  # For multi-header columns (e.g., DENSO has 4 sub-cols)
+    sub_columns: List[str] = None  # For multi-header columns
     
     def __post_init__(self):
         if self.sub_columns is None:
@@ -37,9 +37,9 @@ class ColumnDefinition:
 
 
 @dataclass
-class CatalogSchema:
-    """Detected or defined schema for a catalog."""
-    schema_type: CatalogType
+class ListSchema:
+    """Detected or defined schema for a list."""
+    schema_type: ListType
     columns: List[ColumnDefinition]
     key_column: Optional[str] = None  # Primary identifier column
     brand_columns: List[str] = None  # Columns containing brand/product codes
@@ -50,14 +50,14 @@ class CatalogSchema:
             self.brand_columns = []
 
 
-class CatalogSchemaDetector:
+class ListSchemaDetector:
     """
-    Detects catalog schema from headers and data.
+    Detects list schema from headers and data.
     
     Uses heuristics to identify:
-    - Price-based catalogs (name, price, quantity)
-    - Automotive parts catalogs (brand/model, year, engine, part codes)
-    - Inventory catalogs (SKU, description, stock)
+    - Price-based lists (name, price, quantity)
+    - Automotive parts lists (brand/model, year, engine, part codes)
+    - Inventory lists (SKU, description, stock)
     """
     
     # Patterns for column detection
@@ -78,16 +78,16 @@ class CatalogSchemaDetector:
         self, 
         headers: List[str], 
         sample_rows: Optional[List[List[str]]] = None
-    ) -> CatalogSchema:
+    ) -> ListSchema:
         """
-        Detect catalog schema from headers and optional sample data.
+        Detect list schema from headers and optional sample data.
         
         Args:
-            headers: Column headers from the catalog
+            headers: Column headers from the list
             sample_rows: Optional sample data rows for better detection
             
         Returns:
-            CatalogSchema: Detected schema with confidence score
+            ListSchema: Detected schema with confidence score
         """
         logger.info(
             "schema_detection_started",
@@ -136,8 +136,8 @@ class CatalogSchemaDetector:
         self, 
         headers: List[str], 
         sample_rows: Optional[List[List[str]]]
-    ) -> CatalogSchema:
-        """Detect automotive parts catalog pattern."""
+    ) -> ListSchema:
+        """Detect automotive parts list pattern."""
         confidence = 0.0
         columns = []
         brand_columns = []
@@ -188,15 +188,15 @@ class CatalogSchemaDetector:
         
         # Check sample data for year patterns (e.g., "1997-1999", "2001-2003")
         if sample_rows and not has_year:
-            for row in sample_rows[:5]:  # Check first 5 rows
+            for row in sample_rows[:5]:
                 for cell in row:
                     if re.match(r'\d{4}\s*-\s*\d{4}', str(cell)):
                         has_year = True
                         confidence += 0.1
                         break
         
-        return CatalogSchema(
-            schema_type=CatalogType.AUTOMOTIVE_PARTS,
+        return ListSchema(
+            schema_type=ListType.AUTOMOTIVE_PARTS,
             columns=columns,
             key_column=key_column,
             brand_columns=brand_columns,
@@ -207,7 +207,7 @@ class CatalogSchemaDetector:
         self, 
         headers: List[str], 
         sample_rows: Optional[List[List[str]]]
-    ) -> CatalogSchema:
+    ) -> ListSchema:
         """Detect traditional price list pattern."""
         confidence = 0.0
         columns = []
@@ -250,8 +250,8 @@ class CatalogSchemaDetector:
         if has_name and has_price:
             confidence += 0.3
         
-        return CatalogSchema(
-            schema_type=CatalogType.PRICE_LIST,
+        return ListSchema(
+            schema_type=ListType.PRICE_LIST,
             columns=columns,
             key_column=key_column,
             confidence=min(confidence, 1.0)

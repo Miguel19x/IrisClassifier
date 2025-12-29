@@ -1,7 +1,7 @@
 """
 Gemini Vision PDF extractor.
 
-OPTIMIZED: Uses Gemini 1.5 Flash native PDF support.
+OPTIMIZED: Uses Gemini 2.5 Flash native PDF support.
 Sends entire PDF in a single API call instead of converting pages to images.
 
 This reduces API usage from N calls (per page) to 1 call (per document).
@@ -26,7 +26,7 @@ class GeminiPDFExtractor(BaseExtractor):
     """
     PDF extractor using Gemini Vision with native PDF support.
     
-    OPTIMIZED: Uses Gemini 1.5 Flash which can process PDFs directly,
+    OPTIMIZED: Uses Gemini 2.5 Flash which can process PDFs directly,
     eliminating the need to convert pages to images.
     
     Benefits:
@@ -58,7 +58,7 @@ class GeminiPDFExtractor(BaseExtractor):
         """
         Extract products from PDF using Gemini Vision native PDF support.
         
-        This is the OPTIMIZED method - sends entire PDF to Gemini 1.5 Flash
+        This is the OPTIMIZED method - sends entire PDF to Gemini 2.5 Flash
         in a single API call.
         
         Args:

@@ -1,410 +1,479 @@
 /**
- * Gestión Listados - Core Page
+ * Página de Gestión de Listados (Master Table).
  * 
- * Master Table unificada con vistas duales (Empresarial/Cliente).
- * Incluye heatmap dinámico, filtros inteligentes y exportación.
+ * Diseño premium con vista empresarial/cliente, heatmap y exportación.
  */
-import { useState } from 'react';
-import { useMasterProducts, usePriceStats, useUpdateMargin, useUpdateFinalPrice } from '../services/queries';
-import './ListingsManagement.css';
+import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
+import {
+    Search,
+    SortAsc,
+    FileDown,
+    FileSpreadsheet,
+    Briefcase,
+    User,
+    Thermometer,
+} from 'lucide-react';
+import { useInfiniteMasterProducts, usePriceStats, useExportPDF, useExportExcel, useUpdateMargin, useUpdateFinalPrice } from '../services/queries';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Card, CardContent } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from '@/components/ui/select';
+import { cn } from '@/lib/utils';
 
-type ViewMode = 'enterprise' | 'client';
-type SortBy = 'alphabetical' | 'brand' | 'description' | 'price';
+interface MasterProduct {
+    id: number;
+    clean_code: string;
+    description: string;
+    brand: string | null;
+    original_list_name: string;
+    price_usd: number;
+    margin_percentage: number | null;
+    final_price: number | null;
+}
+
+const ROW_HEIGHT = 56; // Fixed row height for virtualization
 
 export function ListingsManagementPage() {
-    const [viewMode, setViewMode] = useState<ViewMode>('enterprise');
-    const [heatmapEnabled, setHeatmapEnabled] = useState(false);
-    const [sortBy, setSortBy] = useState<SortBy>('alphabetical');
-    const [brandFilter, setBrandFilter] = useState('');
-    const [reviewStatusFilter, setReviewStatusFilter] = useState<string>('');
-    const [currentPage, setCurrentPage] = useState(1);
-
-    // Editing state
-    const [editingId, setEditingId] = useState<number | null>(null);
-    const [editingField, setEditingField] = useState<'margin' | 'final_price' | null>(null);
-    const [editMargin, setEditMargin] = useState('');
-    const [editFinalPrice, setEditFinalPrice] = useState('');
-
-    // Queries
-    const { data, isLoading, error } = useMasterProducts({
-        viewMode,
-        sortBy,
-        brandFilter: brandFilter || undefined,
-        reviewStatusFilter: reviewStatusFilter || undefined,
-        page: currentPage,
-        limit: 50
-    });
-
-    const { data: stats } = usePriceStats();
+    const {
+        data: productsData,
+        isLoading,
+        error,
+        fetchNextPage,
+        hasNextPage,
+        isFetchingNextPage,
+    } = useInfiniteMasterProducts();
+    const { data: statsData } = usePriceStats();
+    const exportPDFMutation = useExportPDF();
+    const exportExcelMutation = useExportExcel();
     const updateMarginMutation = useUpdateMargin();
     const updateFinalPriceMutation = useUpdateFinalPrice();
 
-    // Get heatmap color based on price percentiles
-    const getHeatmapColor = (price: number): string => {
-        if (!heatmapEnabled || !stats) return 'transparent';
+    const [view, setView] = useState<'business' | 'client'>('business');
+    const [heatmapEnabled, setHeatmapEnabled] = useState(false);
+    const [searchQuery, setSearchQuery] = useState('');
+    const [sortBy, setSortBy] = useState<'original' | 'alpha' | 'brand' | 'price'>('original');
+    const [editingCell, setEditingCell] = useState<{ id: number; field: 'margin' | 'finalPrice' } | null>(null);
+    const [editValue, setEditValue] = useState('');
 
-        if (price <= stats.p25) return '#22c55e';  // Verde (25% más barato)
-        if (price >= stats.p75) return '#ef4444';  // Rojo (25% más caro)
-        return '#eab308';  // Amarillo (50% medio)
+    // Ref for virtualization container
+    const tableContainerRef = useRef<HTMLDivElement>(null);
+
+    // Flatten all pages of products
+    const products: MasterProduct[] = useMemo(() => {
+        if (!productsData?.pages) return [];
+        return productsData.pages.flatMap(page => page.products) as MasterProduct[];
+    }, [productsData?.pages]);
+
+    const totalProducts = productsData?.pages?.[0]?.total || 0;
+    const priceRange = { min: statsData?.min_price || 0, max: statsData?.max_price || 1000 };
+
+    const getHeatmapClass = (price: number) => {
+        if (!heatmapEnabled) return '';
+        const range = priceRange.max - priceRange.min;
+        if (range === 0) return '';
+        const ratio = (price - priceRange.min) / range;
+        if (ratio <= 0.33) return 'heatmap-low';
+        if (ratio <= 0.66) return 'heatmap-medium';
+        return 'heatmap-high';
     };
 
-    // Format price
-    const formatPrice = (price: number | null): string => {
-        if (price === null || price === undefined) return '-';
-        return `$${price.toFixed(2)}`;
-    };
+    // Filter and sort products
+    const filteredProducts = useMemo(() => {
+        let result = [...products];
 
-    // Handle edit
-    const handleEditMargin = (product: any) => {
-        setEditingId(product.id);
-        setEditingField('margin');
-        setEditMargin(product.margin_percentage?.toString() || '0');
-    };
+        if (searchQuery) {
+            const query = searchQuery.toLowerCase();
+            result = result.filter(
+                (p) =>
+                    p.clean_code?.toLowerCase().includes(query) ||
+                    p.description?.toLowerCase().includes(query) ||
+                    p.brand?.toLowerCase().includes(query)
+            );
+        }
 
-    const handleEditFinalPrice = (product: any) => {
-        setEditingId(product.id);
-        setEditingField('final_price');
-        setEditFinalPrice(product.final_price?.toString() || product.price_usd.toString());
-    };
+        switch (sortBy) {
+            case 'alpha':
+                result.sort((a, b) => (a.description || '').localeCompare(b.description || ''));
+                break;
+            case 'brand':
+                result.sort((a, b) => (a.brand || '').localeCompare(b.brand || ''));
+                break;
+            case 'price':
+                result.sort((a, b) => (a.price_usd || 0) - (b.price_usd || 0));
+                break;
+        }
 
-    // Handle save margin (Enterprise View)
-    const handleSaveMargin = async (productId: number) => {
+        return result;
+    }, [products, searchQuery, sortBy]);
+
+    // Virtualizer for table rows
+    const rowVirtualizer = useVirtualizer({
+        count: filteredProducts.length,
+        getScrollElement: () => tableContainerRef.current,
+        estimateSize: () => ROW_HEIGHT,
+        overscan: 10, // Render 10 extra rows for smooth scrolling
+    });
+
+    // Infinite scroll: fetch more when near the end
+    useEffect(() => {
+        const virtualItems = rowVirtualizer.getVirtualItems();
+        const lastItem = virtualItems[virtualItems.length - 1];
+
+        if (!lastItem) return;
+
+        // If we're within 50 items of the end and have more to fetch
+        if (
+            lastItem.index >= products.length - 50 &&
+            hasNextPage &&
+            !isFetchingNextPage
+        ) {
+            fetchNextPage();
+        }
+    }, [
+        rowVirtualizer.getVirtualItems(),
+        hasNextPage,
+        isFetchingNextPage,
+        fetchNextPage,
+        products.length,
+    ]);
+
+    const handleCellEdit = useCallback((id: number, field: 'margin' | 'finalPrice', currentValue: number) => {
+        setEditingCell({ id, field });
+        setEditValue(currentValue?.toString() || '0');
+    }, []);
+
+    const handleCellSave = useCallback(async () => {
+        if (!editingCell) return;
+
+        const value = parseFloat(editValue);
+        if (isNaN(value)) {
+            setEditingCell(null);
+            return;
+        }
+
         try {
-            await updateMarginMutation.mutateAsync({
-                productId,
-                margin_percentage: parseFloat(editMargin)
-            });
-            setEditingId(null);
-            setEditingField(null);
-        } catch (err) {
-            alert('Error al actualizar margen');
+            if (editingCell.field === 'margin') {
+                await updateMarginMutation.mutateAsync({
+                    productId: editingCell.id,
+                    margin_percentage: value,
+                });
+            } else {
+                await updateFinalPriceMutation.mutateAsync({
+                    productId: editingCell.id,
+                    final_price: value,
+                });
+            }
+        } catch {
+            alert('Error al guardar cambios');
+        }
+
+        setEditingCell(null);
+    }, [editingCell, editValue, updateMarginMutation, updateFinalPriceMutation]);
+
+    const handleKeyDown = (e: React.KeyboardEvent) => {
+        if (e.key === 'Enter') {
+            handleCellSave();
+        } else if (e.key === 'Escape') {
+            setEditingCell(null);
         }
     };
 
-    // Handle save final price
-    const handleSaveFinalPrice = async (productId: number) => {
+    const handleExportPDF = useCallback(async () => {
         try {
-            await updateFinalPriceMutation.mutateAsync({
-                productId,
-                final_price: parseFloat(editFinalPrice)
-            });
-            setEditingId(null);
-            setEditingField(null);
-        } catch (err) {
-            alert('Error al actualizar precio final');
+            await exportPDFMutation.mutateAsync();
+        } catch {
+            alert('Error al exportar PDF');
         }
-    };
+    }, [exportPDFMutation]);
 
-    // Handle cancel
-    const handleCancel = () => {
-        setEditingId(null);
-        setEditingField(null);
-        setEditMargin('');
-        setEditFinalPrice('');
-    };
+    const handleExportExcel = useCallback(async () => {
+        try {
+            await exportExcelMutation.mutateAsync();
+        } catch {
+            alert('Error al exportar Excel');
+        }
+    }, [exportExcelMutation]);
 
-    // Handle export
-    const handleExport = (format: 'pdf' | 'excel') => {
-        // Build query params
-        const params = new URLSearchParams({
-            format,
-            view_mode: viewMode,
-            sort_by: sortBy
-        });
+    if (isLoading) {
+        return (
+            <div className="flex items-center justify-center min-h-[400px]">
+                <div className="text-muted-foreground animate-pulse">Cargando listados...</div>
+            </div>
+        );
+    }
 
-        if (brandFilter) params.append('brand_filter', brandFilter);
-        if (reviewStatusFilter) params.append('review_status_filter', reviewStatusFilter);
-
-        // Download file - use the API base URL
-        const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1';
-        window.open(`${baseUrl}/master-products/export?${params.toString()}`, '_blank');
-    };
-
-    if (isLoading) return <div className="loading">Cargando productos...</div>;
-    if (error) return <div className="error">Error: {error.message}</div>;
-
-    const products = data?.products || [];
-    const totalProducts = data?.total || 0;
-    const totalPages = Math.ceil(totalProducts / 50);
+    if (error) {
+        return (
+            <div className="flex items-center justify-center min-h-[400px]">
+                <div className="text-destructive">Error al cargar listados: {error.message}</div>
+            </div>
+        );
+    }
 
     return (
-        <div className="listings-management">
-            <div className="page-header">
-                <h2>📋 Gestión Listados</h2>
-                <p className="subtitle">Master Table unificada de todos los listados de precios</p>
-            </div>
+        <div className="container mx-auto px-4 py-8 pb-24">
+            <div className="animate-slide-up">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+                    <h1 className="font-display text-3xl font-bold text-foreground">
+                        Gestión de Listados
+                    </h1>
 
-            {/* View Controls */}
-            <div className="view-controls">
-                <div className="view-buttons">
-                    <button
-                        className={`view-btn ${viewMode === 'enterprise' ? 'active' : ''}`}
-                        onClick={() => setViewMode('enterprise')}
-                    >
-                        📊 Vista Empresarial
-                    </button>
-                    <button
-                        className={`view-btn ${viewMode === 'client' ? 'active' : ''}`}
-                        onClick={() => setViewMode('client')}
-                    >
-                        👤 Vista Cliente
-                    </button>
+                    {/* View Toggle */}
+                    <div className="flex items-center gap-2 p-1 rounded-lg bg-secondary">
+                        <Button
+                            variant={view === 'business' ? 'default' : 'ghost'}
+                            size="sm"
+                            onClick={() => setView('business')}
+                            className="gap-2"
+                        >
+                            <Briefcase className="h-4 w-4" />
+                            Vista Empresarial
+                        </Button>
+                        <Button
+                            variant={view === 'client' ? 'default' : 'ghost'}
+                            size="sm"
+                            onClick={() => setView('client')}
+                            className="gap-2"
+                        >
+                            <User className="h-4 w-4" />
+                            Vista Cliente
+                        </Button>
+                    </div>
                 </div>
 
-                {viewMode === 'enterprise' && (
-                    <button
-                        className={`heatmap-btn ${heatmapEnabled ? 'active' : ''}`}
-                        onClick={() => setHeatmapEnabled(!heatmapEnabled)}
-                        title="Activar/desactivar diferencia de precios"
-                    >
-                        🌡️ Diferencia de Precios
-                    </button>
-                )}
-            </div>
+                {/* Filters and Actions */}
+                <Card variant="glass" className="mb-6">
+                    <CardContent className="p-4">
+                        <div className="flex flex-col lg:flex-row gap-4">
+                            <div className="flex-1 relative">
+                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                <Input
+                                    placeholder="Buscar productos..."
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                    className="pl-10"
+                                />
+                            </div>
 
-            {/* Filters */}
-            <div className="filters-bar">
-                <div className="filter-group">
-                    <label>Ordenar por:</label>
-                    <select value={sortBy} onChange={(e) => setSortBy(e.target.value as SortBy)}>
-                        <option value="alphabetical">Orden Alfabético</option>
-                        <option value="brand">Por Marca</option>
-                        <option value="description">Por Descripción</option>
-                        <option value="price">Por Precio</option>
-                    </select>
-                </div>
+                            <div className="flex flex-wrap gap-2">
+                                <Select value={sortBy} onValueChange={(v: typeof sortBy) => setSortBy(v)}>
+                                    <SelectTrigger className="w-[140px]">
+                                        <SortAsc className="h-4 w-4 mr-2" />
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="original">Original</SelectItem>
+                                        <SelectItem value="alpha">Alfabético</SelectItem>
+                                        <SelectItem value="brand">Por Marca</SelectItem>
+                                        <SelectItem value="price">Por Precio</SelectItem>
+                                    </SelectContent>
+                                </Select>
 
-                <div className="filter-group">
-                    <label>Filtrar por marca:</label>
-                    <input
-                        type="text"
-                        placeholder="Ej: TOYOTA"
-                        value={brandFilter}
-                        onChange={(e) => setBrandFilter(e.target.value)}
-                    />
-                </div>
-
-                <div className="filter-group">
-                    <label>Estado de revisión:</label>
-                    <select value={reviewStatusFilter} onChange={(e) => setReviewStatusFilter(e.target.value)}>
-                        <option value="">Todos</option>
-                        <option value="pending">⚠️ Pendientes</option>
-                        <option value="confirmed">✓ Confirmados</option>
-                        <option value="rejected">✗ Rechazados</option>
-                    </select>
-                </div>
-
-                <div className="export-buttons">
-                    <button onClick={() => handleExport('pdf')} className="export-btn">
-                        📄 Exportar PDF
-                    </button>
-                    <button onClick={() => handleExport('excel')} className="export-btn">
-                        📊 Exportar Excel
-                    </button>
-                </div>
-            </div>
-
-            {/* Master Table */}
-            <div className="master-table-container">
-                <table className="master-table">
-                    <thead>
-                        <tr>
-                            <th>N°</th>
-                            <th>CÓDIGO</th>
-                            <th>DESCRIPCIÓN</th>
-                            <th>MARCA</th>
-                            {viewMode === 'enterprise' && <th>EMPRESA/LISTADO</th>}
-                            <th>USD</th>
-                            {viewMode === 'enterprise' ? (
-                                <>
-                                    <th>%</th>
-                                    <th>USD PRECIO FINAL</th>
-                                </>
-                            ) : (
-                                <th>USD PRECIO FINAL</th>
-                            )}
-                            <th>Acciones</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {products.map((product: any) => {
-                            const needsReview = product.review_status === 'pending';
-                            const priceColor = getHeatmapColor(product.price_usd);
-
-                            return (
-                                <tr
-                                    key={product.id}
-                                    className={needsReview ? 'needs-review' : ''}
-                                    style={{ backgroundColor: needsReview ? '#fff3cd' : 'transparent' }}
-                                >
-                                    <td>{product.index_number}</td>
-                                    <td className="code-cell">
-                                        {needsReview && <span className="warning-icon" title="Requiere revisión manual">⚠️</span>}
-                                        {product.clean_code}
-                                    </td>
-                                    <td>{product.description}</td>
-                                    <td>{product.brand || '-'}</td>
-                                    {viewMode === 'enterprise' && (
-                                        <td className="source-cell">{product.original_list_name}</td>
-                                    )}
-                                    <td
-                                        className="price-cell"
-                                        style={{ backgroundColor: priceColor }}
+                                {view === 'business' && (
+                                    <Button
+                                        variant={heatmapEnabled ? 'default' : 'outline'}
+                                        onClick={() => setHeatmapEnabled(!heatmapEnabled)}
+                                        className="gap-2"
                                     >
-                                        {formatPrice(product.price_usd)}
-                                    </td>
-                                    {viewMode === 'enterprise' ? (
-                                        <>
-                                            <td className="margin-cell">
-                                                {editingId === product.id && editingField === 'margin' ? (
-                                                    <input
-                                                        type="number"
-                                                        step="0.01"
-                                                        value={editMargin}
-                                                        onChange={(e) => setEditMargin(e.target.value)}
-                                                        className="edit-input"
-                                                        autoFocus
-                                                    />
-                                                ) : (
-                                                    <span
-                                                        onClick={() => handleEditMargin(product)}
-                                                        className="editable-cell"
-                                                        title="Click para editar"
-                                                    >
-                                                        {product.margin_percentage ? `${product.margin_percentage}%` : '-'}
-                                                    </span>
-                                                )}
-                                            </td>
-                                            <td className="final-price-cell">
-                                                {editingId === product.id && editingField === 'final_price' ? (
-                                                    <input
-                                                        type="number"
-                                                        step="0.01"
-                                                        value={editFinalPrice}
-                                                        onChange={(e) => setEditFinalPrice(e.target.value)}
-                                                        className="edit-input"
-                                                        autoFocus
-                                                    />
-                                                ) : (
-                                                    <span
-                                                        onClick={() => handleEditFinalPrice(product)}
-                                                        className="editable-cell"
-                                                        title="Click para editar"
-                                                    >
-                                                        {formatPrice(product.final_price)}
-                                                    </span>
-                                                )}
-                                            </td>
-                                        </>
-                                    ) : (
-                                        <td className="final-price-cell">
-                                            {editingId === product.id ? (
-                                                <input
+                                        <Thermometer className="h-4 w-4" />
+                                        Heatmap
+                                    </Button>
+                                )}
+
+                                <Button
+                                    variant="outline"
+                                    className="gap-2"
+                                    onClick={handleExportPDF}
+                                    disabled={exportPDFMutation.isPending}
+                                >
+                                    <FileDown className="h-4 w-4" />
+                                    {exportPDFMutation.isPending ? 'Exportando...' : 'PDF'}
+                                </Button>
+                                <Button
+                                    variant="outline"
+                                    className="gap-2"
+                                    onClick={handleExportExcel}
+                                    disabled={exportExcelMutation.isPending}
+                                >
+                                    <FileSpreadsheet className="h-4 w-4" />
+                                    {exportExcelMutation.isPending ? 'Exportando...' : 'Excel'}
+                                </Button>
+                            </div>
+                        </div>
+
+                        {/* Heatmap Legend */}
+                        {view === 'business' && heatmapEnabled && (
+                            <div className="mt-4 pt-4 border-t border-border animate-fade-in">
+                                <div className="flex flex-wrap items-center gap-3 sm:gap-6 text-sm">
+                                    <span className="text-muted-foreground w-full sm:w-auto">Leyenda:</span>
+                                    <div className="flex items-center gap-2">
+                                        <div className="w-4 h-4 rounded bg-success/20" />
+                                        <span className="text-success text-xs sm:text-sm">25% más barato</span>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <div className="w-4 h-4 rounded bg-warning/20" />
+                                        <span className="text-warning text-xs sm:text-sm">Precio medio</span>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <div className="w-4 h-4 rounded bg-destructive/20" />
+                                        <span className="text-destructive text-xs sm:text-sm">25% más caro</span>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </CardContent>
+                </Card>
+
+                {/* Virtualized Master Table */}
+                <Card variant="glass" className="overflow-hidden">
+                    {/* Table Header */}
+                    <div className="bg-secondary">
+                        <div className={cn(
+                            "grid p-4 text-sm font-medium text-foreground",
+                            view === 'business'
+                                ? "grid-cols-[60px_100px_1fr_100px_120px_100px_80px_100px]"
+                                : "grid-cols-[60px_100px_1fr_100px_100px]"
+                        )}>
+                            <div>N°</div>
+                            <div>Código</div>
+                            <div>Descripción</div>
+                            <div>Marca</div>
+                            {view === 'business' && (
+                                <>
+                                    <div>Empresa</div>
+                                    <div className="text-right">USD Base</div>
+                                    <div className="text-right">% Margen</div>
+                                </>
+                            )}
+                            <div className="text-right">{view === 'business' ? 'USD Final' : 'USD'}</div>
+                        </div>
+                    </div>
+
+                    {/* Virtualized Table Body */}
+                    <div
+                        ref={tableContainerRef}
+                        className="overflow-auto"
+                        style={{ height: 'calc(100vh - 400px)', minHeight: '400px' }}
+                    >
+                        <div
+                            style={{
+                                height: `${rowVirtualizer.getTotalSize()}px`,
+                                width: '100%',
+                                position: 'relative',
+                            }}
+                        >
+                            {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                                const product = filteredProducts[virtualRow.index];
+                                const rowIndex = virtualRow.index + 1;
+
+                                return (
+                                    <div
+                                        key={product.id}
+                                        className={cn(
+                                            "grid items-center p-4 border-b border-border hover:bg-secondary/50 absolute w-full",
+                                            view === 'business'
+                                                ? "grid-cols-[60px_100px_1fr_100px_120px_100px_80px_100px]"
+                                                : "grid-cols-[60px_100px_1fr_100px_100px]"
+                                        )}
+                                        style={{
+                                            height: `${virtualRow.size}px`,
+                                            transform: `translateY(${virtualRow.start}px)`,
+                                            contain: 'layout style paint',
+                                        }}
+                                    >
+                                        <div className="text-muted-foreground">{rowIndex}</div>
+                                        <div className="font-mono text-foreground truncate">{product.clean_code}</div>
+                                        <div className="text-foreground truncate">{product.description}</div>
+                                        <div className="text-muted-foreground truncate">{product.brand}</div>
+                                        {view === 'business' && (
+                                            <>
+                                                <div>
+                                                    <Badge variant="outline" className="text-xs">
+                                                        {product.original_list_name || 'N/A'}
+                                                    </Badge>
+                                                </div>
+                                                <div className={cn('text-right font-medium', getHeatmapClass(Number(product.price_usd) || 0))}>
+                                                    ${(Number(product.price_usd) || 0).toFixed(2)}
+                                                </div>
+                                                <div className="text-right">
+                                                    {editingCell?.id === product.id && editingCell?.field === 'margin' ? (
+                                                        <Input
+                                                            type="number"
+                                                            step="0.1"
+                                                            value={editValue}
+                                                            onChange={(e) => setEditValue(e.target.value)}
+                                                            onBlur={handleCellSave}
+                                                            onKeyDown={handleKeyDown}
+                                                            className="h-8 w-16 text-right"
+                                                            autoFocus
+                                                        />
+                                                    ) : (
+                                                        <button
+                                                            onClick={() => handleCellEdit(product.id, 'margin', Number(product.margin_percentage) || 0)}
+                                                            className="px-2 py-1 rounded hover:bg-secondary transition-colors text-accent cursor-pointer"
+                                                        >
+                                                            {(Number(product.margin_percentage) || 0).toFixed(1)}%
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </>
+                                        )}
+                                        <div className="text-right">
+                                            {editingCell?.id === product.id && editingCell?.field === 'finalPrice' ? (
+                                                <Input
                                                     type="number"
                                                     step="0.01"
-                                                    value={editFinalPrice}
-                                                    onChange={(e) => setEditFinalPrice(e.target.value)}
-                                                    className="edit-input"
+                                                    value={editValue}
+                                                    onChange={(e) => setEditValue(e.target.value)}
+                                                    onBlur={handleCellSave}
+                                                    onKeyDown={handleKeyDown}
+                                                    className="h-8 w-20 text-right"
                                                     autoFocus
                                                 />
-                                            ) : (
-                                                <span
-                                                    onClick={() => handleEditFinalPrice(product)}
-                                                    className="editable-cell"
-                                                    title="Click para editar"
+                                            ) : view === 'business' ? (
+                                                <button
+                                                    onClick={() => handleCellEdit(product.id, 'finalPrice', Number(product.final_price) || 0)}
+                                                    className="px-2 py-1 rounded hover:bg-secondary transition-colors font-semibold text-success cursor-pointer"
                                                 >
-                                                    {formatPrice(product.final_price)}
+                                                    ${(Number(product.final_price) || 0).toFixed(2)}
+                                                </button>
+                                            ) : (
+                                                <span className="font-semibold text-foreground">
+                                                    ${(Number(product.final_price) || 0).toFixed(2)}
                                                 </span>
                                             )}
-                                        </td>
-                                    )}
-                                    <td className="actions-cell">
-                                        {editingId === product.id ? (
-                                            <div className="action-buttons">
-                                                <button
-                                                    onClick={() => editingField === 'margin'
-                                                        ? handleSaveMargin(product.id)
-                                                        : handleSaveFinalPrice(product.id)
-                                                    }
-                                                    className="btn-save"
-                                                    title="Guardar"
-                                                >
-                                                    ✓
-                                                </button>
-                                                <button
-                                                    onClick={handleCancel}
-                                                    className="btn-cancel"
-                                                    title="Cancelar"
-                                                >
-                                                    ✗
-                                                </button>
-                                            </div>
-                                        ) : null}
-                                    </td>
-                                </tr>
-                            );
-                        })}
-                    </tbody>
-                </table>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+
+                    {/* Product Count Footer */}
+                    {filteredProducts.length > 0 && (
+                        <div className="p-4 border-t border-border text-sm text-muted-foreground flex items-center justify-between">
+                            <span>
+                                {products.length} de {totalProducts} productos cargados
+                                {searchQuery && ` (${filteredProducts.length} filtrados)`}
+                            </span>
+                            {isFetchingNextPage && (
+                                <span className="animate-pulse">Cargando más...</span>
+                            )}
+                            {!hasNextPage && products.length > 0 && (
+                                <span className="text-success">Todos los productos cargados</span>
+                            )}
+                        </div>
+                    )}
+                </Card>
             </div>
-
-            {/* Pagination */}
-            {totalPages > 1 && (
-                <div className="pagination">
-                    <button
-                        onClick={() => setCurrentPage(1)}
-                        disabled={currentPage === 1}
-                        className="pagination-btn"
-                    >
-                        ⟪
-                    </button>
-                    <button
-                        onClick={() => setCurrentPage(currentPage - 1)}
-                        disabled={currentPage === 1}
-                        className="pagination-btn"
-                    >
-                        ◀
-                    </button>
-
-                    <span className="pagination-info">
-                        Página {currentPage} de {totalPages} • {totalProducts} productos
-                    </span>
-
-                    <button
-                        onClick={() => setCurrentPage(currentPage + 1)}
-                        disabled={currentPage === totalPages}
-                        className="pagination-btn"
-                    >
-                        ▶
-                    </button>
-                    <button
-                        onClick={() => setCurrentPage(totalPages)}
-                        disabled={currentPage === totalPages}
-                        className="pagination-btn"
-                    >
-                        ⟫
-                    </button>
-                </div>
-            )}
-
-            {/* Legend for heatmap */}
-            {heatmapEnabled && viewMode === 'enterprise' && (
-                <div className="heatmap-legend">
-                    <span className="legend-title">Leyenda de precios:</span>
-                    <span className="legend-item">
-                        <span className="legend-color" style={{ backgroundColor: '#22c55e' }}></span>
-                        Barato (25% inferior)
-                    </span>
-                    <span className="legend-item">
-                        <span className="legend-color" style={{ backgroundColor: '#eab308' }}></span>
-                        Mediano (50% medio)
-                    </span>
-                    <span className="legend-item">
-                        <span className="legend-color" style={{ backgroundColor: '#ef4444' }}></span>
-                        Caro (25% superior)
-                    </span>
-                </div>
-            )}
         </div>
     );
 }

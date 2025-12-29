@@ -1,7 +1,7 @@
 """
 Export API router.
 
-Handles catalog export to various formats.
+Handles list export to various formats.
 """
 import logging
 import io
@@ -21,29 +21,28 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-@router.get("/catalogs/{catalog_id}/export")
-def export_catalog(
-    catalog_id: int,
+@router.get("/lists/{list_id}/export")
+def export_list(
+    list_id: int,
     format: Literal["csv", "excel", "json"] = "excel",
     db: Session = Depends(get_db)
 ):
     """
-    Export catalog products to various formats.
+    Export list products to various formats.
     
     Supports CSV, Excel (XLSX), and JSON formats.
     Returns a downloadable file.
     """
-    # Get catalog
-    catalog = db.get(PriceList, catalog_id)
-    if not catalog:
-        raise NotFoundError("Catalog", catalog_id)
+    price_list = db.get(PriceList, list_id)
+    if not price_list:
+        raise NotFoundError("PriceList", list_id)
     
     # Get products
-    query = select(Product).where(Product.catalog_id == catalog_id)
+    query = select(Product).where(Product.list_id == list_id)
     products = db.execute(query).scalars().all()
     
     if not products:
-        raise HTTPException(status_code=404, detail="No products found in catalog")
+        raise HTTPException(status_code=404, detail="No hay productos en esta lista")
     
     # Prepare data
     data = []
@@ -56,13 +55,15 @@ def export_catalog(
         
         data.append({
             "ID": product.id,
-            "Name": product.name,
-            "Price": float(product.price) if product.price else None,
-            "Currency": product.currency,
-            "Price Range": price_range_name,
-            "Classification Method": product.classification_method,
-            "Confidence": round(product.confidence_score * 100, 2),
-            "Created At": product.created_at.isoformat(),
+            "Código": product.code,
+            "Nombre": product.name,
+            "Marca": product.brand,
+            "Precio": float(product.price) if product.price else None,
+            "Moneda": product.currency,
+            "Rango de Precio": price_range_name,
+            "Método": product.classification_method,
+            "Confianza": round(product.confidence_score * 100, 2),
+            "Creado": product.created_at.isoformat(),
         })
     
     # Create DataFrame
@@ -78,17 +79,17 @@ def export_catalog(
             iter([output.getvalue()]),
             media_type="text/csv",
             headers={
-                "Content-Disposition": f"attachment; filename=catalog_{catalog_id}.csv"
+                "Content-Disposition": f"attachment; filename=lista_{list_id}.csv"
             }
         )
     
     elif format == "excel":
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            df.to_excel(writer, index=False, sheet_name='Products')
+            df.to_excel(writer, index=False, sheet_name='Productos')
             
             # Auto-adjust column widths
-            worksheet = writer.sheets['Products']
+            worksheet = writer.sheets['Productos']
             for idx, col in enumerate(df.columns):
                 max_length = max(
                     df[col].astype(str).apply(len).max(),
@@ -102,14 +103,14 @@ def export_catalog(
             output,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             headers={
-                "Content-Disposition": f"attachment; filename=catalog_{catalog_id}.xlsx"
+                "Content-Disposition": f"attachment; filename=lista_{list_id}.xlsx"
             }
         )
     
     else:  # json
         return {
-            "catalog_id": catalog_id,
-            "catalog_name": PriceList.name,
+            "list_id": list_id,
+            "list_name": price_list.name,
             "total_products": len(data),
             "exported_at": pd.Timestamp.now().isoformat(),
             "products": data

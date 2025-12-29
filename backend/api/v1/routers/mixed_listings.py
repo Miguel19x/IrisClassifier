@@ -28,7 +28,7 @@ class CreateMixedListingRequest(BaseModel):
     """Request to create a mixed listing."""
     name: str
     description: Optional[str] = None
-    catalog_ids: List[int]
+    list_ids: List[int]
     use_best_prices: bool = True  # Auto-select best prices from matches
     price_range_ids: Optional[List[int]] = None  # Filter by price ranges
 
@@ -48,7 +48,7 @@ class ProductInListing(BaseModel):
     product_id: int
     name: str
     price: Optional[float]
-    catalog_id: int
+    list_id: int
     catalog_name: str
     price_range_name: Optional[str]
     is_best_price: bool
@@ -89,7 +89,7 @@ async def create_mixed_listing(
     
     # Get products from specified catalogs
     query = db.query(Product).filter(
-        Product.catalog_id.in_(request.catalog_ids)
+        Product.list_id.in_(request.list_ids)
     )
     
     # Filter by price ranges if specified
@@ -229,7 +229,7 @@ async def get_mixed_listing_products(
     elif sort_by == "name":
         query = query.order_by(Product.name.asc())
     elif sort_by == "catalog":
-        query = query.order_by(Product.catalog_id.asc())
+        query = query.order_by(Product.list_id.asc())
     
     results = query.all()
     
@@ -248,7 +248,7 @@ async def get_mixed_listing_products(
             product_id=product.id,
             name=product.name,
             price=float(product.price) if product.price else None,
-            catalog_id=product.catalog_id,
+            list_id=product.list_id,
             catalog_name=product.PriceList.name,
             price_range_name=product.price_range.name if product.price_range else None,
             is_best_price=product.id in best_price_ids

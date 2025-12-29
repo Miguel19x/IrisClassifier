@@ -73,7 +73,7 @@ class Settings(BaseSettings):
     json_logs: bool = True
     
     # CORS
-    allowed_origins: str = "http://localhost:5173,http://localhost:8100,capacitor://localhost,http://localhost"
+    allowed_origins: str = "http://localhost:5173,http://localhost:5174,http://localhost:8100,capacitor://localhost,http://localhost"
     
     class Config:
         env_file = ".env"

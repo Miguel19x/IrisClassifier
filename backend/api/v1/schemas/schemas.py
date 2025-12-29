@@ -73,6 +73,7 @@ class ProductUpdate(BaseModel):
     price: Optional[Decimal] = Field(None, ge=0)
     price_range_id: Optional[int] = None
     category_id: Optional[int] = None
+    review_status: Optional[str] = Field(None, pattern=r'^(pending|confirmed|rejected)$')
 
 
 class ProductResponse(ProductBase):
@@ -84,6 +85,7 @@ class ProductResponse(ProductBase):
     price_range_name: Optional[str] = None
     confidence_score: float
     classification_method: str
+    review_status: str = "pending"
     list_type: str = "price_list"
     structured_data: Optional[Dict[str, Any]] = None
     created_at: datetime

@@ -146,3 +146,267 @@
     flex-direction: column;
   }
 }
+
+/* Compare Selection */
+.list-card.selected-compare {
+  border: 2px solid #667eea;
+  background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
+}
+
+.compare-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  margin-bottom: 0.5rem;
+}
+
+.compare-checkbox input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: #667eea;
+}
+
+.checkbox-label {
+  font-size: 0.8rem;
+  color: #667eea;
+}
+
+/* Compare Section */
+.compare-section {
+  margin-top: 1.5rem;
+  padding: 1.5rem;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.compare-options {
+  margin-bottom: 1rem;
+}
+
+.ai-option {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: #e0e0e0;
+  cursor: pointer;
+  font-size: 0.95rem;
+}
+
+.ai-option input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: #667eea;
+}
+
+.btn-compare {
+  width: 100%;
+  padding: 1rem;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 1.1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-compare:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(102, 126, 234, 0.4);
+}
+
+.btn-compare:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Comparison Results */
+.comparison-results {
+  margin-top: 2rem;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 12px;
+  padding: 1.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.results-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+}
+
+.results-header h3 {
+  margin: 0;
+  color: #fff;
+}
+
+.btn-close {
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  color: #fff;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 1.2rem;
+  transition: all 0.2s ease;
+}
+
+.btn-close:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.stats-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+
+.stat-card {
+  background: linear-gradient(135deg, rgba(102, 126, 234, 0.15) 0%, rgba(118, 75, 162, 0.15) 100%);
+  border-radius: 12px;
+  padding: 1.5rem;
+  text-align: center;
+}
+
+.stat-card.highlight {
+  background: linear-gradient(135deg, rgba(76, 175, 80, 0.2) 0%, rgba(46, 125, 50, 0.2) 100%);
+  border: 1px solid rgba(76, 175, 80, 0.3);
+}
+
+.stat-card .stat-value {
+  font-size: 2rem;
+  font-weight: 700;
+  color: #667eea;
+  margin-bottom: 0.5rem;
+}
+
+.stat-card.highlight .stat-value {
+  color: #4caf50;
+}
+
+.stat-card .stat-label {
+  color: #a0a0a0;
+  font-size: 0.9rem;
+}
+
+/* Matches Section */
+.matches-section {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 12px;
+  padding: 1.5rem;
+}
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.section-header h4 {
+  color: #fff;
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.btn-create-listing {
+  padding: 0.75rem 1.5rem;
+  background: linear-gradient(135deg, #4caf50 0%, #45a049 100%);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-create-listing:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(76, 175, 80, 0.4);
+}
+
+.btn-create-listing:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.matches-table-container {
+  overflow-x: auto;
+  border-radius: 8px;
+}
+
+.matches-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.matches-table thead {
+  background: rgba(102, 126, 234, 0.2);
+}
+
+.matches-table th {
+  padding: 1rem;
+  text-align: left;
+  font-weight: 600;
+  color: #fff;
+  border-bottom: 2px solid rgba(102, 126, 234, 0.3);
+  white-space: nowrap;
+}
+
+.matches-table td {
+  padding: 1rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  color: #e0e0e0;
+}
+
+.matches-table tbody tr:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.product-name {
+  font-weight: 500;
+  color: #fff;
+}
+
+.best-price {
+  background: rgba(76, 175, 80, 0.2);
+  color: #4caf50;
+  font-weight: 600;
+}
+
+.no-price {
+  color: #666;
+}
+
+.has-difference {
+  color: #ffc107;
+  font-weight: 600;
+}
+
+@media (max-width: 768px) {
+  .stats-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .section-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .matches-table {
+    font-size: 0.85rem;
+  }
+
+  .matches-table th,
+  .matches-table td {
+    padding: 0.75rem 0.5rem;
+  }
+}

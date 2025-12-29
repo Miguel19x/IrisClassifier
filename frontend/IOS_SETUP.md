@@ -28,14 +28,14 @@ The iOS app requires specific permissions to access device features. Edit `ios/A
 
 ```xml
 <key>NSCameraUsageDescription</key>
-<string>IrisClassifier needs camera access to capture product catalog images for classification.</string>
+<string>IrisClassifier needs camera access to capture product price list images for classification.</string>
 ```
 
 ### Photo Library Permission
 
 ```xml
 <key>NSPhotoLibraryUsageDescription</key>
-<string>IrisClassifier needs photo library access to save and retrieve catalog images.</string>
+<string>IrisClassifier needs photo library access to save and retrieve price list images.</string>
 
 <key>NSPhotoLibraryAddUsageDescription</key>
 <string>IrisClassifier needs permission to save captured images to your photo library.</string>
@@ -104,7 +104,7 @@ In Xcode:
 
 The following capabilities should be automatically configured, but verify:
 
-- ✅ **Camera** - For capturing catalog images
+- ✅ **Camera** - For capturing price list images
 - ✅ **Photo Library** - For saving/loading images
 
 ## Step 7: Build and Run

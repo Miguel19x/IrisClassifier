@@ -1,31 +1,514 @@
+@import "tailwindcss";
+
+/* IrisClassifier Premium Design System - Tailwind v4 */
+
+/* Theme configuration - only fonts and radius, colors use CSS variables for dynamic theme switching */
+@theme {
+    --font-family-sans: 'Inter', system-ui, sans-serif;
+    --font-family-display: 'Outfit', system-ui, sans-serif;
+
+    --radius-lg: 0.75rem;
+    --radius-md: calc(0.75rem - 2px);
+    --radius-sm: calc(0.75rem - 4px);
+
+    /* Color tokens that reference CSS variables */
+    --color-background: hsl(var(--background));
+    --color-foreground: hsl(var(--foreground));
+    --color-card: hsl(var(--card));
+    --color-card-foreground: hsl(var(--card-foreground));
+    --color-popover: hsl(var(--popover));
+    --color-popover-foreground: hsl(var(--popover-foreground));
+    --color-primary: hsl(var(--primary));
+    --color-primary-foreground: hsl(var(--primary-foreground));
+    --color-primary-glow: hsl(var(--primary-glow));
+    --color-secondary: hsl(var(--secondary));
+    --color-secondary-foreground: hsl(var(--secondary-foreground));
+    --color-muted: hsl(var(--muted));
+    --color-muted-foreground: hsl(var(--muted-foreground));
+    --color-accent: hsl(var(--accent));
+    --color-accent-foreground: hsl(var(--accent-foreground));
+    --color-success: hsl(var(--success));
+    --color-success-foreground: hsl(var(--success-foreground));
+    --color-warning: hsl(var(--warning));
+    --color-warning-foreground: hsl(var(--warning-foreground));
+    --color-destructive: hsl(var(--destructive));
+    --color-destructive-foreground: hsl(var(--destructive-foreground));
+    --color-border: hsl(var(--border));
+    --color-input: hsl(var(--input));
+    --color-ring: hsl(var(--ring));
+}
+
+/* CSS Variables - Dark mode as default */
 :root {
-    font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
-    line-height: 1.5;
-    font-weight: 400;
+    --background: 240 20% 4%;
+    --foreground: 210 40% 98%;
+    --card: 240 15% 8%;
+    --card-foreground: 210 40% 98%;
+    --popover: 240 15% 10%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 262 83% 58%;
+    --primary-foreground: 0 0% 100%;
+    --primary-glow: 262 83% 70%;
+    --secondary: 217 33% 17%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217 33% 17%;
+    --muted-foreground: 215 20% 55%;
+    --accent: 192 91% 50%;
+    --accent-foreground: 240 20% 4%;
+    --success: 142 76% 45%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 0%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 217 33% 20%;
+    --input: 217 33% 15%;
+    --ring: 262 83% 58%;
+    --radius: 0.75rem;
 
-    color-scheme: light dark;
-    color: rgba(255, 255, 255, 0.87);
-    background-color: #242424;
+    /* Gradients */
+    --gradient-primary: linear-gradient(135deg, hsl(262, 83%, 58%), hsl(280, 80%, 50%));
+    --gradient-accent: linear-gradient(135deg, hsl(192, 91%, 50%), hsl(262, 83%, 58%));
+    --gradient-card: linear-gradient(180deg, hsl(240, 15%, 10%), hsl(240, 15%, 6%));
+    --gradient-glow: radial-gradient(ellipse at center, hsl(262, 83%, 58%, 0.15), transparent 70%);
 
-    font-synthesis: none;
-    text-rendering: optimizeLegibility;
+    /* Shadows */
+    --shadow-sm: 0 2px 8px hsl(0, 0%, 0%, 0.3);
+    --shadow-md: 0 4px 16px hsl(0, 0%, 0%, 0.4);
+    --shadow-lg: 0 8px 32px hsl(0, 0%, 0%, 0.5);
+    --shadow-glow: 0 0 40px hsl(262, 83%, 58%, 0.3);
+    --shadow-glow-accent: 0 0 30px hsl(192, 91%, 50%, 0.2);
+
+    /* Glass effect */
+    --glass-bg: hsl(240, 15%, 10%, 0.6);
+    --glass-border: hsl(217, 33%, 25%, 0.5);
+
+    /* Sidebar */
+    --sidebar-background: 240 15% 6%;
+    --sidebar-foreground: 210 40% 98%;
+    --sidebar-primary: 262 83% 58%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 217 33% 17%;
+    --sidebar-accent-foreground: 210 40% 98%;
+    --sidebar-border: 217 33% 17%;
+    --sidebar-ring: 262 83% 58%;
+}
+
+/* Light mode overrides */
+.light {
+    --background: 0 0% 98%;
+    --foreground: 240 10% 10%;
+    --card: 0 0% 100%;
+    --card-foreground: 240 10% 10%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 10% 10%;
+    --primary: 262 83% 55%;
+    --primary-foreground: 0 0% 100%;
+    --primary-glow: 262 83% 65%;
+    --secondary: 220 14% 96%;
+    --secondary-foreground: 240 10% 10%;
+    --muted: 220 14% 96%;
+    --muted-foreground: 220 9% 46%;
+    --accent: 192 91% 45%;
+    --accent-foreground: 0 0% 100%;
+    --success: 142 76% 40%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 92% 45%;
+    --warning-foreground: 0 0% 0%;
+    --destructive: 0 84% 55%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 220 13% 91%;
+    --input: 220 13% 91%;
+    --ring: 262 83% 55%;
+    --shadow-glow: 0 0 40px hsl(262, 83%, 55%, 0.2);
+    --shadow-glow-accent: 0 0 30px hsl(192, 91%, 45%, 0.15);
+    --glass-bg: hsl(0, 0%, 100%, 0.8);
+    --glass-border: hsl(220, 13%, 91%, 0.8);
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 240 10% 10%;
+    --sidebar-primary: 262 83% 55%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 220 14% 96%;
+    --sidebar-accent-foreground: 240 10% 10%;
+    --sidebar-border: 220 13% 91%;
+    --sidebar-ring: 262 83% 55%;
+}
+
+/* Base styles */
+html {
+    scroll-behavior: smooth;
+}
+
+body {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-family: var(--font-family-sans);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
 }
 
 * {
-    box-sizing: border-box;
-    margin: 0;
-    padding: 0;
+    border-color: hsl(var(--border));
 }
 
-body {
-    margin: 0;
-    min-width: 320px;
-    min-height: 100vh;
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+    font-family: var(--font-family-display);
 }
 
-#root {
-    width: 100%;
-    min-height: 100vh;
+/* Global button cursor */
+button,
+[role="button"],
+.cursor-pointer {
+    cursor: pointer;
+}
+
+/* Glass card effect */
+.glass-card {
+    border-radius: 0.75rem;
+    border-width: 1px;
+    backdrop-filter: blur(24px);
+    background: var(--glass-bg);
+    border-color: var(--glass-border);
+}
+
+/* Gradient text */
+.gradient-text {
+    background-clip: text;
+    color: transparent;
+    background-image: var(--gradient-primary);
+}
+
+/* Glow effects */
+.glow-primary {
+    box-shadow: var(--shadow-glow);
+}
+
+.glow-accent {
+    box-shadow: var(--shadow-glow-accent);
+}
+
+/* Shadow utilities */
+.shadow-glow {
+    box-shadow: var(--shadow-glow) !important;
+}
+
+.shadow-glow-accent {
+    box-shadow: var(--shadow-glow-accent) !important;
+}
+
+.hover\:shadow-glow:hover {
+    box-shadow: var(--shadow-glow) !important;
+}
+
+/* Status badges */
+.status-processing {
+    color: hsl(var(--warning));
+    background-color: hsl(var(--warning) / 0.1);
+    border-color: hsl(var(--warning) / 0.3);
+}
+
+.status-completed {
+    color: hsl(var(--success));
+    background-color: hsl(var(--success) / 0.1);
+    border-color: hsl(var(--success) / 0.3);
+}
+
+.status-pending {
+    color: hsl(var(--warning));
+    background-color: hsl(var(--warning) / 0.1);
+    border-color: hsl(var(--warning) / 0.3);
+}
+
+.status-confirmed {
+    color: hsl(var(--success));
+    background-color: hsl(var(--success) / 0.1);
+    border-color: hsl(var(--success) / 0.3);
+}
+
+/* Heatmap colors */
+.heatmap-low {
+    background-color: hsl(var(--success) / 0.2);
+    color: hsl(var(--success));
+}
+
+.heatmap-medium {
+    background-color: hsl(var(--warning) / 0.2);
+    color: hsl(var(--warning));
+}
+
+.heatmap-high {
+    background-color: hsl(var(--destructive) / 0.2);
+    color: hsl(var(--destructive));
+}
+
+/* Hover lift effect */
+.hover-lift {
+    transition: all 0.3s ease-in-out;
+}
+
+.hover-lift:hover {
+    transform: translateY(-4px);
+    box-shadow: var(--shadow-lg);
+}
+
+/* Animation utilities */
+.animate-fade-in {
+    animation: fadeIn 0.5s ease-out forwards;
+}
+
+.animate-slide-up {
+    animation: slideUp 0.5s ease-out forwards;
+}
+
+.animate-scale-in {
+    animation: scaleIn 0.3s ease-out forwards;
+}
+
+.animate-glow-pulse {
+    animation: glowPulse 2s ease-in-out infinite;
+}
+
+/* Keyframes */
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+@keyframes slideUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes scaleIn {
+    from {
+        opacity: 0;
+        transform: scale(0.95);
+    }
+
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+@keyframes glowPulse {
+
+    0%,
+    100% {
+        box-shadow: 0 0 20px hsl(262, 83%, 58%, 0.3);
+    }
+
+    50% {
+        box-shadow: 0 0 40px hsl(262, 83%, 58%, 0.5);
+    }
+}
+
+@keyframes shimmer {
+    0% {
+        background-position: -200% 0;
+    }
+
+    100% {
+        background-position: 200% 0;
+    }
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: hsl(var(--background));
+}
+
+::-webkit-scrollbar-thumb {
+    background: hsl(var(--muted));
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground));
+}
+
+/* Focus ring styling */
+*:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px hsl(var(--background)), 0 0 0 4px hsl(var(--ring));
+}
+
+/* Selection styling */
+::selection {
+    background: hsl(var(--primary) / 0.3);
+    color: hsl(var(--foreground));
+}
+
+/* Lightweight CSS animations for performance */
+@keyframes fade-in {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+.animate-fade-in {
+    animation: fade-in 0.15s ease-out;
+}
+
+/* Additional animations for Framer Motion replacement */
+@keyframes slideLeft {
+    from {
+        opacity: 0;
+        transform: translateX(-50px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+@keyframes slideRight {
+    from {
+        opacity: 0;
+        transform: translateX(50px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+@keyframes slideDown {
+    from {
+        opacity: 0;
+        transform: translateY(-20px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes fadeOut {
+    from {
+        opacity: 1;
+    }
+
+    to {
+        opacity: 0;
+    }
+}
+
+@keyframes scaleOut {
+    from {
+        opacity: 1;
+        transform: scale(1);
+    }
+
+    to {
+        opacity: 0;
+        transform: scale(0.9);
+    }
+}
+
+@keyframes expandHeight {
+    from {
+        opacity: 0;
+        max-height: 0;
+        overflow: hidden;
+    }
+
+    to {
+        opacity: 1;
+        max-height: 500px;
+        overflow: visible;
+    }
+}
+
+@keyframes collapseHeight {
+    from {
+        opacity: 1;
+        max-height: 500px;
+    }
+
+    to {
+        opacity: 0;
+        max-height: 0;
+        overflow: hidden;
+    }
+}
+
+/* Animation utility classes */
+.animate-slide-left {
+    animation: slideLeft 0.8s ease-out forwards;
+}
+
+.animate-slide-right {
+    animation: slideRight 0.5s ease-out forwards;
+}
+
+.animate-slide-down {
+    animation: slideDown 0.5s ease-out forwards;
+}
+
+.animate-fade-out {
+    animation: fadeOut 0.3s ease-in forwards;
+}
+
+.animate-scale-out {
+    animation: scaleOut 0.3s ease-in forwards;
+}
+
+.animate-expand {
+    animation: expandHeight 0.3s ease-out forwards;
+}
+
+.animate-collapse {
+    animation: collapseHeight 0.3s ease-in forwards;
+}
+
+/* Delayed animation utilities */
+.animation-delay-100 {
+    animation-delay: 0.1s;
+}
+
+.animation-delay-200 {
+    animation-delay: 0.2s;
+}
+
+.animation-delay-300 {
+    animation-delay: 0.3s;
+}
+
+.animation-delay-500 {
+    animation-delay: 0.5s;
+}
+
+/* Fill mode for animations */
+.animation-fill-both {
+    animation-fill-mode: both;
 }

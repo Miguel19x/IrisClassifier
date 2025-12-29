@@ -8,7 +8,7 @@ import { api } from '../services/api';
 import { useLists } from '../services/queries';
 
 interface ProgressData {
-    catalog_id: number;
+    list_id: number;
     status: string;
     total_pages: number;
     pages_processed: number;
@@ -43,7 +43,7 @@ export default function Upload() {
     const { data: progress } = useQuery({
         queryKey: ['listProgress', listId],
         queryFn: async () => {
-            const response = await api.get<ProgressData>(`/catalogs/${listId}/progress`);
+            const response = await api.get<ProgressData>(`/lists/${listId}/progress`);
             return response.data;
         },
         enabled: listId !== null,
@@ -83,7 +83,7 @@ export default function Upload() {
             return response.data;
         },
         onSuccess: (data) => {
-            setListId(data.catalog_id);
+            setListId(data.list_id);
             setFile(null);
         },
     });
@@ -121,7 +121,7 @@ export default function Upload() {
     };
 
     // Compare functionality
-    const toggleCatalogForCompare = (id: number) => {
+    const toggleListForCompare = (id: number) => {
         setSelectedForCompare(prev => {
             if (prev.includes(id)) {
                 return prev.filter(c => c !== id);
@@ -140,7 +140,7 @@ export default function Upload() {
 
         try {
             const response = await api.post('/compare', {
-                catalog_ids: selectedForCompare,
+                list_ids: selectedForCompare,
                 use_ai: false // Simplified comparison
             });
 
@@ -372,7 +372,7 @@ export default function Upload() {
                                     {listsData.lists.map((list: any) => (
                                         <div
                                             key={list.id}
-                                            onClick={() => toggleCatalogForCompare(list.id)}
+                                            onClick={() => toggleListForCompare(list.id)}
                                             className={`p-4 border-2 rounded-lg cursor-pointer transition-all ${selectedForCompare.includes(list.id)
                                                 ? 'border-blue-500 bg-blue-50'
                                                 : 'border-gray-300 hover:border-gray-400'

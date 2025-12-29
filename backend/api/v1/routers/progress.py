@@ -1,7 +1,7 @@
 """
 Progress tracking API router.
 
-Provides endpoints to check catalog processing progress.
+Provides endpoints to check list processing progress.
 """
 import logging
 from typing import Optional
@@ -19,8 +19,8 @@ router = APIRouter()
 
 
 class ProgressResponse(BaseModel):
-    """Response for catalog processing progress."""
-    catalog_id: int
+    """Response for list processing progress."""
+    list_id: int
     status: str
     total_pages: int
     pages_processed: int
@@ -32,9 +32,9 @@ class ProgressResponse(BaseModel):
     error_message: Optional[str] = None
 
 
-@router.get("/catalogs/{catalog_id}/progress", response_model=ProgressResponse)
-async def get_catalog_progress(
-    catalog_id: int,
+@router.get("/lists/{list_id}/progress", response_model=ProgressResponse)
+async def get_list_progress(
+    list_id: int,
     user_id: int = Depends(get_current_user_id),
     db: Session = Depends(get_db)
 ):
@@ -47,23 +47,22 @@ async def get_catalog_progress(
     - Products extracted so far
     - Progress percentage
     """
-    # Get catalog and verify ownership
-    catalog = db.get(PriceList, catalog_id)
-    if not catalog:
-        raise HTTPException(status_code=404, detail="Catálogo no encontrado")
+    price_list = db.get(PriceList, list_id)
+    if not price_list:
+        raise HTTPException(status_code=404, detail="Lista no encontrada")
     
-    if PriceList.user_id != user_id:
+    if price_list.user_id != user_id:
         raise HTTPException(status_code=403, detail="No autorizado")
     
     # Get latest processing log
     log = db.query(ProcessingLog).filter(
-        ProcessingLog.catalog_id == catalog_id
+        ProcessingLog.list_id == list_id
     ).order_by(ProcessingLog.created_at.desc()).first()
     
     if not log:
         return ProgressResponse(
-            catalog_id=catalog_id,
-            status=PriceList.status,
+            list_id=list_id,
+            status=price_list.status,
             total_pages=0,
             pages_processed=0,
             current_batch=0,
@@ -81,7 +80,7 @@ async def get_catalog_progress(
         progress_percent = (log.current_batch / log.total_batches) * 100
     
     return ProgressResponse(
-        catalog_id=catalog_id,
+        list_id=list_id,
         status=log.status,
         total_pages=log.total_pages,
         pages_processed=log.pages_processed,

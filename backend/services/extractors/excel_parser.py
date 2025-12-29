@@ -2,11 +2,12 @@
 Excel parser using pandas.
 
 Extracts products and prices from Excel files (.xlsx, .xls).
-Now supports flexible catalog schemas.
+Supports flexible catalog schemas with smart header detection.
 """
 import io
 import logging
-from typing import List
+import re
+from typing import List, Optional, Dict, Tuple
 
 try:
     import pandas as pd
@@ -19,16 +20,39 @@ from core.exceptions import FileProcessingError
 logger = logging.getLogger(__name__)
 
 
+# Known header keywords for column detection
+HEADER_KEYWORDS = {
+    'code': ['codigo', 'código', 'code', 'ref', 'referencia', 'sku', 'part', 'parte'],
+    'name': ['descripcion', 'descripción', 'nombre', 'producto', 'item', 'name', 'description'],
+    'brand': ['marca', 'brand', 'fabricante', 'manufacturer'],
+    'price': ['precio', 'price', 'usd', 'eur', 'bs', 'valor', 'costo', 'cost', 'amount', 'pvp'],
+}
+
+# Rows to skip (metadata, titles, categories)
+SKIP_PATTERNS = [
+    r'^lista\s+de\s+precios?$',
+    r'^a[ñn]o\s+\d{4}$',
+    r'^email:?\s*',
+    r'^\d{4}$',  # Just a year
+    r'^rif\s*[j-]\d+',
+    r'^fua\d+',
+    r'^alternadores?\s*auto$',
+    r'^alternadores?$',
+    r'^categoria',
+    r'^\s*$',
+]
+
+
 class ExcelParser(BaseExtractor):
     """
     Extracts products and prices from Excel files.
     
     Handles:
     - Multiple sheets
+    - Header row detection (finds actual headers, not first row)
+    - Metadata/category row skipping
+    - Column auto-detection for código, descripción, marca, precio
     - Formula evaluation
-    - Column auto-detection
-    - Data type inference
-    - Flexible catalog schemas (automotive parts, price lists, etc.)
     """
     
     def supports(self, mime_type: str) -> bool:
@@ -54,38 +78,46 @@ class ExcelParser(BaseExtractor):
         if pd is None:
             raise FileProcessingError("pandas not installed")
         
-        from services.catalog_schema_detector import CatalogSchemaDetector
-        
         self._log_extraction_start(len(content))
         products: List[RawProduct] = []
         
         try:
-            # Read all sheets
+            # Read all sheets without header (header=None to read raw data)
             excel_file = pd.ExcelFile(io.BytesIO(content))
             
             for sheet_name in excel_file.sheet_names:
-                df = pd.read_excel(excel_file, sheet_name=sheet_name)
+                # Read without assuming first row is header
+                df_raw = pd.read_excel(excel_file, sheet_name=sheet_name, header=None)
                 
-                # Detect schema
-                detector = CatalogSchemaDetector()
-                headers = df.columns.tolist()
-                sample_rows = df.head(5).values.tolist()
-                schema = detector.detect(headers, sample_rows)
+                # Find the actual header row
+                header_row_idx = self._find_header_row(df_raw)
+                
+                if header_row_idx is None:
+                    logger.warning(
+                        "excel_no_header_found",
+                        extra={"sheet": sheet_name}
+                    )
+                    # Try with first row as header
+                    header_row_idx = 0
                 
                 logger.info(
-                    "excel_schema_detected",
+                    "excel_header_detected",
                     extra={
                         "sheet": sheet_name,
-                        "schema_type": schema.schema_type,
-                        "confidence": schema.confidence
+                        "header_row": header_row_idx
                     }
                 )
                 
-                # Extract based on schema type
-                if schema.schema_type == "automotive_parts":
-                    products.extend(self._extract_automotive_parts(df, schema))
-                else:
-                    products.extend(self._extract_price_list(df, schema))
+                # Read again with correct header
+                df = pd.read_excel(
+                    excel_file, 
+                    sheet_name=sheet_name, 
+                    header=header_row_idx
+                )
+                
+                # Extract products from this sheet
+                sheet_products = self._extract_products(df, sheet_name)
+                products.extend(sheet_products)
                         
         except Exception as e:
             logger.error(
@@ -103,100 +135,166 @@ class ExcelParser(BaseExtractor):
         self._log_extraction_complete(len(products))
         return products
     
-    def _extract_automotive_parts(self, df, schema) -> List[RawProduct]:
-        """Extract automotive parts from dataframe."""
-        products = []
+    def _find_header_row(self, df: 'pd.DataFrame') -> Optional[int]:
+        """
+        Find the row that contains the actual column headers.
         
-        for _, row in df.iterrows():
-            columns = {}
-            name_parts = []
-            
-            for col_name in df.columns:
-                value = str(row[col_name]).strip()
-                
-                # Skip NaN and empty values
-                if value.lower() in ['nan', 'none', '']:
-                    continue
-                
-                columns[col_name] = value
-                
-                # Build name from key columns
-                if schema.key_column and col_name == schema.key_column:
-                    name_parts.insert(0, value)
-                elif any(kw in str(col_name).lower() for kw in ['año', 'year', 'motor', 'engine']):
-                    name_parts.append(value)
-            
-            if columns:
-                name = " | ".join(name_parts) if name_parts else list(columns.values())[0]
-                
-                products.append(RawProduct(
-                    name=name,
-                    price_text="",
-                    raw_line=str(row.to_dict()),
-                    columns=columns,
-                    catalog_type="automotive_parts"
-                ))
+        Looks for rows containing keywords like CODIGO, DESCRIPCION, MARCA, USD.
+        """
+        all_keywords = []
+        for kw_list in HEADER_KEYWORDS.values():
+            all_keywords.extend(kw_list)
         
-        return products
+        for idx, row in df.iterrows():
+            row_values = [str(v).lower().strip() for v in row.values if pd.notna(v)]
+            row_text = ' '.join(row_values)
+            
+            # Count how many header keywords match
+            matches = sum(1 for kw in all_keywords if kw in row_text)
+            
+            # Need at least 2 matches (e.g., DESCRIPCION and USD)
+            if matches >= 2:
+                return idx
+        
+        return None
     
-    def _extract_price_list(self, df, schema) -> List[RawProduct]:
-        """Extract price list from dataframe."""
+    def _extract_products(self, df: 'pd.DataFrame', sheet_name: str) -> List[RawProduct]:
+        """Extract products from a dataframe with detected columns."""
         products = []
         
-        # Detect name and price columns
-        name_col, price_col = self._detect_columns(df.columns)
+        # Map columns to their purpose
+        column_map = self._map_columns(df.columns)
         
-        if name_col is None or price_col is None:
-            logger.warning("excel_columns_not_detected")
+        logger.info(
+            "excel_columns_mapped",
+            extra={
+                "sheet": sheet_name,
+                "code_col": column_map.get('code'),
+                "name_col": column_map.get('name'),
+                "brand_col": column_map.get('brand'),
+                "price_col": column_map.get('price'),
+            }
+        )
+        
+        # We need at least a name/description column
+        name_col = column_map.get('name')
+        if name_col is None:
+            # Fallback: use first text-like column
+            for col in df.columns:
+                if df[col].dtype == object:
+                    name_col = col
+                    break
+        
+        if name_col is None:
+            logger.warning("excel_no_name_column")
             return products
         
-        for _, row in df.iterrows():
-            name = str(row[name_col]).strip()
-            price_text = str(row[price_col]).strip()
+        for idx, row in df.iterrows():
+            # Get values
+            name_value = str(row[name_col]).strip() if name_col and pd.notna(row[name_col]) else ""
             
-            # Skip empty rows or headers
-            if name and price_text and name.lower() not in ['nan', 'none', '']:
-                # Store all columns
-                columns = {
-                    col: str(row[col]).strip()
-                    for col in df.columns
-                    if str(row[col]).strip().lower() not in ['nan', 'none', '']
-                }
-                
-                products.append(RawProduct(
-                    name=name,
-                    price_text=price_text,
-                    raw_line=f"{name} | {price_text}",
-                    columns=columns,
-                    catalog_type="price_list"
-                ))
+            # Skip if empty or looks like a header/category
+            if not name_value or name_value.lower() in ['nan', 'none', '']:
+                continue
+            
+            if self._should_skip_row(name_value):
+                continue
+            
+            # Extract code
+            code_col = column_map.get('code')
+            code_value = str(row[code_col]).strip() if code_col and pd.notna(row.get(code_col)) else ""
+            if code_value.lower() in ['nan', 'none']:
+                code_value = ""
+            
+            # Extract brand
+            brand_col = column_map.get('brand')
+            brand_value = str(row[brand_col]).strip() if brand_col and pd.notna(row.get(brand_col)) else ""
+            if brand_value.lower() in ['nan', 'none']:
+                brand_value = ""
+            
+            # Extract price
+            price_col = column_map.get('price')
+            price_text = ""
+            if price_col and pd.notna(row.get(price_col)):
+                raw_price = row[price_col]
+                # Handle numeric values directly
+                if isinstance(raw_price, (int, float)):
+                    price_text = str(raw_price)
+                else:
+                    price_text = str(raw_price).strip()
+            
+            if price_text.lower() in ['nan', 'none']:
+                price_text = ""
+            
+            # SUBTITLE DETECTION:
+            # A row with description but missing code, brand, AND price is a subtitle/category
+            # Skip these rows as they are not products
+            has_code = bool(code_value)
+            has_brand = bool(brand_value)
+            has_price = bool(price_text)
+            
+            if not has_code and not has_brand and not has_price:
+                logger.debug(
+                    "excel_subtitle_detected",
+                    extra={
+                        "subtitle": name_value,
+                        "row_index": idx,
+                        "sheet": sheet_name,
+                    }
+                )
+                continue  # Skip subtitle/category rows
+            
+            # Build columns dict for structured data
+            columns = {
+                'code': code_value,
+                'name': name_value,
+                'brand': brand_value,
+                'price': price_text,
+            }
+            
+            # Add any other columns
+            for col in df.columns:
+                if col not in [name_col, code_col, brand_col, price_col]:
+                    val = row.get(col)
+                    if pd.notna(val):
+                        col_str = str(val).strip()
+                        if col_str.lower() not in ['nan', 'none', '']:
+                            columns[str(col)] = col_str
+            
+            products.append(RawProduct(
+                name=name_value,
+                price_text=price_text,
+                raw_line=f"{code_value} | {name_value} | {brand_value} | {price_text}",
+                columns=columns,
+                catalog_type="price_list"
+            ))
         
         return products
     
-    def _detect_columns(self, columns) -> tuple:
-        """Detect name and price columns from dataframe columns."""
-        name_col = None
-        price_col = None
+    def _map_columns(self, columns) -> Dict[str, str]:
+        """Map dataframe columns to their semantic purpose."""
+        column_map = {}
         
         for col in columns:
-            col_lower = str(col).lower()
+            col_lower = str(col).lower().strip()
             
-            if name_col is None and any(
-                word in col_lower 
-                for word in ['nombre', 'producto', 'item', 'name', 'descripcion', 'description']
-            ):
-                name_col = col
-            
-            if price_col is None and any(
-                word in col_lower 
-                for word in ['precio', 'price', 'valor', 'costo', 'cost', 'amount']
-            ):
-                price_col = col
+            # Check each category of keywords
+            for purpose, keywords in HEADER_KEYWORDS.items():
+                if purpose in column_map:
+                    continue  # Already found this column type
+                
+                if any(kw in col_lower for kw in keywords):
+                    column_map[purpose] = col
+                    break
         
-        # If not found, use first two columns as fallback
-        if name_col is None and len(columns) > 0:
-            name_col = columns[0]
-        if price_col is None and len(columns) > 1:
-            price_col = columns[1]
+        return column_map
+    
+    def _should_skip_row(self, text: str) -> bool:
+        """Check if a row should be skipped (metadata, category, etc.)."""
+        text_lower = text.lower().strip()
         
-        return name_col, price_col
+        for pattern in SKIP_PATTERNS:
+            if re.match(pattern, text_lower, re.IGNORECASE):
+                return True
+        
+        return False

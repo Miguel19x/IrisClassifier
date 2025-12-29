@@ -1,7 +1,7 @@
 """
 Comparison API Router.
 
-Endpoints for comparing products across multiple catalogs.
+Endpoints for comparing products across multiple price lists.
 """
 import logging
 from typing import List, Optional
@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
 from database.connection import get_db
-from database.models import Product, ProductMatch, ProductMatchMember, Catalog
+from database.models import Product, ProductMatch, ProductMatchMember, PriceList
 from api.dependencies import get_current_user_id
 from services.product_matching_service import ProductMatchingService
 
@@ -21,16 +21,16 @@ router = APIRouter(prefix="/compare", tags=["comparison"])
 
 # Schemas
 class CompareRequest(BaseModel):
-    """Request to compare catalogs."""
-    catalog_ids: List[int]
+    """Request to compare lists."""
+    list_ids: List[int]
     use_ai: bool = True
 
 
 class ProductComparisonItem(BaseModel):
     """Single product in comparison."""
     product_id: int
-    catalog_id: int
-    catalog_name: str
+    list_id: int
+    list_name: str
     name: str
     price: Optional[float]
     is_best_price: bool
@@ -43,7 +43,7 @@ class ProductMatchResponse(BaseModel):
     match_method: str
     confidence: float
     products: List[ProductComparisonItem]
-    price_range: Optional[float]  # Difference between min and max
+    price_range: Optional[float]
     best_price: Optional[float]
     worst_price: Optional[float]
 
@@ -58,54 +58,54 @@ class ComparisonStats(BaseModel):
 
 
 class CompareResponse(BaseModel):
-    """Response for catalog comparison."""
+    """Response for PriceList comparison."""
     matches: List[ProductMatchResponse]
     stats: ComparisonStats
-    catalogs: List[dict]
+    lists: List[dict]
 
 
 @router.post("", response_model=CompareResponse)
-async def compare_catalogs(
+async def compare_lists(
     request: CompareRequest,
     user_id: int = Depends(get_current_user_id),
     db: Session = Depends(get_db)
 ):
     """
-    Compare products across multiple catalogs.
+    Compare products across multiple price lists.
     
     Finds matching products and compares prices.
     
     Args:
-        request: Comparison request with catalog IDs
+        request: Comparison request with PriceList IDs
         user_id: Current user ID
         db: Database session
         
     Returns:
         Comparison results with matches and statistics
     """
-    if len(request.catalog_ids) < 2:
+    if len(request.list_ids) < 2:
         raise HTTPException(
             status_code=400,
-            detail="At least 2 catalogs required for comparison"
+            detail="Se requieren al menos 2 listas para comparar"
         )
     
-    # Verify catalogs exist and belong to user
-    catalogs = db.query(Catalog).filter(
-        PriceList.id.in_(request.catalog_ids),
+    # Verify lists exist and belong to user
+    price_lists = db.query(PriceList).filter(
+        PriceList.id.in_(request.list_ids),
         PriceList.user_id == user_id
     ).all()
     
-    if len(catalogs) != len(request.catalog_ids):
+    if len(price_lists) != len(request.list_ids):
         raise HTTPException(
             status_code=404,
-            detail="One or more catalogs not found"
+            detail="Una o más listas no encontradas"
         )
     
     # Find matches
     matching_service = ProductMatchingService()
     matches = await matching_service.find_matches(
         db=db,
-        catalog_ids=request.catalog_ids,
+        list_ids=request.list_ids,
         user_id=user_id,
         use_ai=request.use_ai
     )
@@ -116,18 +116,18 @@ async def compare_catalogs(
     potential_savings = 0.0
     
     for match in matches:
-        # Get products with catalog info
+        # Get products with list info
         products_data = []
         prices = []
         
         for member in match.members:
             product = member.product
-            catalog = product.catalog
+            product_list = product.price_list
             
             products_data.append(ProductComparisonItem(
                 product_id=product.id,
-                catalog_id=PriceList.id,
-                catalog_name=PriceList.name,
+                list_id=product_list.id,
+                list_name=product_list.name,
                 name=product.name,
                 price=float(product.price) if product.price else None,
                 is_best_price=member.is_best_price
@@ -159,7 +159,7 @@ async def compare_catalogs(
     
     # Get total products
     total_products = db.query(Product).filter(
-        Product.catalog_id.in_(request.catalog_ids)
+        Product.list_id.in_(request.list_ids)
     ).count()
     
     unique_products = total_products - total_matched_products + len(matches)
@@ -172,15 +172,15 @@ async def compare_catalogs(
         potential_savings=potential_savings
     )
     
-    catalog_info = [
-        {"id": c.id, "name": c.name, "product_count": c.product_count}
-        for c in catalogs
+    list_info = [
+        {"id": pl.id, "name": pl.name, "product_count": pl.product_count}
+        for pl in price_lists
     ]
     
     return CompareResponse(
         matches=match_responses,
         stats=stats,
-        catalogs=catalog_info
+        lists=list_info
     )
 
 
@@ -207,7 +207,7 @@ async def get_match(
     ).first()
     
     if not match:
-        raise HTTPException(status_code=404, detail="Match not found")
+        raise HTTPException(status_code=404, detail="Match no encontrado")
     
     # Build response
     products_data = []
@@ -215,12 +215,12 @@ async def get_match(
     
     for member in match.members:
         product = member.product
-        catalog = product.catalog
+        product_list = product.price_list
         
         products_data.append(ProductComparisonItem(
             product_id=product.id,
-            catalog_id=PriceList.id,
-            catalog_name=PriceList.name,
+            list_id=product_list.id,
+            list_name=product_list.name,
             name=product.name,
             price=float(product.price) if product.price else None,
             is_best_price=member.is_best_price

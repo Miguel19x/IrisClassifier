@@ -108,7 +108,7 @@ class PDFExtractor(BaseExtractor):
         page_num: int
     ) -> List[RawProduct]:
         """Extract products from PDF tables with schema detection."""
-        from services.catalog_schema_detector import CatalogSchemaDetector
+        from services.list_schema_detector import ListSchemaDetector
         
         products = []
         
@@ -122,7 +122,7 @@ class PDFExtractor(BaseExtractor):
                 continue
             
             # Detect catalog schema
-            detector = CatalogSchemaDetector()
+            detector = ListSchemaDetector()
             schema = detector.detect(header, table[1:6])  # Use first 5 rows as sample
             
             logger.info(

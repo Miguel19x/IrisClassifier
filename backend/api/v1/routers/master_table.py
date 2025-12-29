@@ -70,11 +70,11 @@ class PriceStatsResponse(BaseModel):
 @router.get("", response_model=MasterProductListResponse)
 async def get_master_products(
     view_mode: str = Query("enterprise", regex="^(enterprise|client)$"),
-    sort_by: str = Query("alphabetical", regex="^(alphabetical|brand|description|price)$"),
+    sort_by: str = Query("index", regex="^(index|alphabetical|brand|description|price)$"),
     brand_filter: Optional[str] = None,
     review_status_filter: Optional[str] = Query(None, regex="^(pending|confirmed|rejected)$"),
     page: int = Query(1, ge=1),
-    limit: int = Query(50, ge=1, le=200),
+    limit: int = Query(200, ge=1, le=500),
     user_id: int = Depends(get_current_user_id),
     db: Session = Depends(get_db)
 ):
@@ -87,7 +87,7 @@ async def get_master_products(
     """
     # Base query - filter by user's lists
     query = db.query(MasterProduct).join(
-        Catalog, MasterProduct.source_list_id == PriceList.id
+        PriceList, MasterProduct.source_list_id == PriceList.id
     ).filter(PriceList.user_id == user_id)
     
     # Apply filters
@@ -99,15 +99,17 @@ async def get_master_products(
     if review_status_filter:
         query = query.filter(MasterProduct.review_status == review_status_filter)
     
-    # Apply sorting
-    if sort_by == "alphabetical":
-        query = query.order_by(asc(MasterProduct.description))
+    # Apply sorting (with secondary sort by index_number for consistency)
+    if sort_by == "index":
+        query = query.order_by(asc(MasterProduct.index_number))
+    elif sort_by == "alphabetical":
+        query = query.order_by(asc(MasterProduct.description), asc(MasterProduct.index_number))
     elif sort_by == "brand":
-        query = query.order_by(asc(MasterProduct.brand), asc(MasterProduct.description))
+        query = query.order_by(asc(MasterProduct.brand), asc(MasterProduct.description), asc(MasterProduct.index_number))
     elif sort_by == "description":
-        query = query.order_by(asc(MasterProduct.description))
+        query = query.order_by(asc(MasterProduct.description), asc(MasterProduct.index_number))
     elif sort_by == "price":
-        query = query.order_by(asc(MasterProduct.price_usd))
+        query = query.order_by(asc(MasterProduct.price_usd), asc(MasterProduct.index_number))
     
     # Get total count
     total = query.count()
@@ -138,7 +140,7 @@ async def get_price_stats(
     """
     # Get all prices for user's products
     prices_query = db.query(MasterProduct.price_usd).join(
-        Catalog, MasterProduct.source_list_id == PriceList.id
+        PriceList, MasterProduct.source_list_id == PriceList.id
     ).filter(PriceList.user_id == user_id).order_by(MasterProduct.price_usd)
     
     prices = [p[0] for p in prices_query.all()]
@@ -183,7 +185,7 @@ async def update_margin(
     Automatically recalculates final_price = price_usd * (1 + margin/100)
     """
     product = db.query(MasterProduct).join(
-        Catalog, MasterProduct.source_list_id == PriceList.id
+        PriceList, MasterProduct.source_list_id == PriceList.id
     ).filter(
         MasterProduct.id == product_id,
         PriceList.user_id == user_id
@@ -227,7 +229,7 @@ async def update_final_price(
     Automatically recalculates margin % = ((final - base) / base) * 100
     """
     product = db.query(MasterProduct).join(
-        Catalog, MasterProduct.source_list_id == PriceList.id
+        PriceList, MasterProduct.source_list_id == PriceList.id
     ).filter(
         MasterProduct.id == product_id,
         PriceList.user_id == user_id
@@ -274,7 +276,7 @@ async def update_review_status(
     Used when user manually confirms or rejects a product with low confidence.
     """
     product = db.query(MasterProduct).join(
-        Catalog, MasterProduct.source_list_id == PriceList.id
+        PriceList, MasterProduct.source_list_id == PriceList.id
     ).filter(
         MasterProduct.id == product_id,
         PriceList.user_id == user_id
@@ -312,7 +314,7 @@ async def update_review_status(
 async def export_master_products(
     format: str = Query("excel", regex="^(excel|pdf)$"),
     view_mode: str = Query("enterprise", regex="^(enterprise|client)$"),
-    sort_by: str = Query("alphabetical", regex="^(alphabetical|brand|description|price)$"),
+    sort_by: str = Query("index", regex="^(index|alphabetical|brand|description|price)$"),
     brand_filter: Optional[str] = None,
     review_status_filter: Optional[str] = Query(None, regex="^(pending|confirmed|rejected)$"),
     user_id: int = Depends(get_current_user_id),
@@ -332,7 +334,7 @@ async def export_master_products(
     
     # Build query with filters (same as get_master_products)
     query = db.query(MasterProduct).join(
-        Catalog, MasterProduct.source_list_id == PriceList.id
+        PriceList, MasterProduct.source_list_id == PriceList.id
     ).filter(PriceList.user_id == user_id)
     
     if brand_filter:
@@ -343,15 +345,17 @@ async def export_master_products(
     if review_status_filter:
         query = query.filter(MasterProduct.review_status == review_status_filter)
     
-    # Apply sorting
-    if sort_by == "alphabetical":
-        query = query.order_by(asc(MasterProduct.description))
+    # Apply sorting (with secondary sort by index_number for consistency)
+    if sort_by == "index":
+        query = query.order_by(asc(MasterProduct.index_number))
+    elif sort_by == "alphabetical":
+        query = query.order_by(asc(MasterProduct.description), asc(MasterProduct.index_number))
     elif sort_by == "brand":
-        query = query.order_by(asc(MasterProduct.brand), asc(MasterProduct.description))
+        query = query.order_by(asc(MasterProduct.brand), asc(MasterProduct.description), asc(MasterProduct.index_number))
     elif sort_by == "description":
-        query = query.order_by(asc(MasterProduct.description))
+        query = query.order_by(asc(MasterProduct.description), asc(MasterProduct.index_number))
     elif sort_by == "price":
-        query = query.order_by(asc(MasterProduct.price_usd))
+        query = query.order_by(asc(MasterProduct.price_usd), asc(MasterProduct.index_number))
     
     products = query.all()
     

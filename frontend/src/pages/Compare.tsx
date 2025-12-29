@@ -1,29 +1,29 @@
 /**
- * Página de Comparación de Catálogos.
+ * Página de Comparación de Listas.
  * 
- * Permite comparar productos entre múltiples catálogos para encontrar mejores precios.
+ * Permite comparar productos entre múltiples listas para encontrar mejores precios.
  */
 import { useState } from 'react';
-import { useCatalogs, useCompareCatalogs, useCreateMixedListing } from '../services/queries';
+import { useLists, useCompareLists, useCreateMixedListing } from '../services/queries';
 import './Compare.css';
 
 export function ComparePage() {
-    const { data: catalogsData } = useCatalogs();
-    const compareMutation = useCompareCatalogs();
+    const { data: listsData } = useLists();
+    const compareMutation = useCompareLists();
     const createListingMutation = useCreateMixedListing();
 
-    const [selectedCatalogs, setSelectedCatalogs] = useState<number[]>([]);
+    const [selectedLists, setSelectedLists] = useState<number[]>([]);
     const [useAI, setUseAI] = useState(true);
     const [comparisonResult, setComparisonResult] = useState<any>(null);
 
     const handleCompare = async () => {
-        if (selectedCatalogs.length < 2) {
-            alert('Selecciona al menos 2 catálogos');
+        if (selectedLists.length < 2) {
+            alert('Selecciona al menos 2 listas');
             return;
         }
 
         const result = await compareMutation.mutateAsync({
-            catalog_ids: selectedCatalogs,
+            list_ids: selectedLists,
             use_ai: useAI
         });
 
@@ -36,15 +36,15 @@ export function ComparePage() {
 
         await createListingMutation.mutateAsync({
             name,
-            catalog_ids: selectedCatalogs,
+            list_ids: selectedLists,
             use_best_prices: true
         });
 
         alert('Listado mixto creado!');
     };
 
-    const toggleCatalog = (id: number) => {
-        setSelectedCatalogs(prev =>
+    const toggleList = (id: number) => {
+        setSelectedLists(prev =>
             prev.includes(id) ? prev.filter(c => c !== id) : [...prev, id]
         );
     };
@@ -52,115 +52,105 @@ export function ComparePage() {
     return (
         <div className="compare-page">
             <div className="page-header">
-                <h2>📊 Comparador de Catálogos</h2>
-                <p className="subtitle">Encuentra los mejores precios entre tus catálogos</p>
+                <h2>📊 Comparador de Listas</h2>
+                <p className="subtitle">Encuentra los mejores precios entre tus listas</p>
             </div>
 
-            <div className="catalog-selector">
-                <h3>Selecciona catálogos para comparar:</h3>
-                <div className="catalog-grid">
-                    {catalogsData?.catalogs.map((catalog: any) => (
+            <div className="list-selector">
+                <h3>Selecciona listas para comparar:</h3>
+                <div className="list-grid">
+                    {listsData?.lists?.map((list: any) => (
                         <div
-                            key={catalog.id}
-                            className={`catalog-card ${selectedCatalogs.includes(catalog.id) ? 'selected' : ''}`}
-                            onClick={() => toggleCatalog(catalog.id)}
+                            key={list.id}
+                            className={`list-card ${selectedLists.includes(list.id) ? 'selected' : ''}`}
+                            onClick={() => toggleList(list.id)}
                         >
-                            <div className="catalog-name">{catalog.name}</div>
-                            <div className="catalog-info">{catalog.product_count} productos</div>
-                            {selectedCatalogs.includes(catalog.id) && <div className="check-mark">✓</div>}
+                            <div className="list-name">{list.name}</div>
+                            <div className="list-info">{list.product_count} productos</div>
+                            {selectedLists.includes(list.id) && <div className="check-mark">✓</div>}
                         </div>
                     ))}
                 </div>
+            </div>
 
-                <div className="compare-options">
-                    <label>
-                        <input
-                            type="checkbox"
-                            checked={useAI}
-                            onChange={(e) => setUseAI(e.target.checked)}
-                        />
-                        Usar IA para matching avanzado (más lento pero más preciso)
-                    </label>
-                </div>
+            <div className="compare-options">
+                <label>
+                    <input
+                        type="checkbox"
+                        checked={useAI}
+                        onChange={(e) => setUseAI(e.target.checked)}
+                    />
+                    Usar IA para matching mejorado
+                </label>
+            </div>
 
+            <div className="compare-actions">
                 <button
-                    className="btn-compare"
                     onClick={handleCompare}
-                    disabled={selectedCatalogs.length < 2 || compareMutation.isPending}
+                    className="btn-primary"
+                    disabled={selectedLists.length < 2 || compareMutation.isPending}
                 >
-                    {compareMutation.isPending ? '🔄 Comparando...' : '🔍 Comparar Catálogos'}
+                    {compareMutation.isPending ? 'Comparando...' : `Comparar ${selectedLists.length} Listas`}
                 </button>
             </div>
 
             {comparisonResult && (
                 <div className="comparison-results">
+                    <h3>Resultados de Comparación</h3>
                     <div className="stats-summary">
-                        <div className="stat-card">
-                            <div className="stat-value">{comparisonResult.stats.total_matches}</div>
-                            <div className="stat-label">Productos Coincidentes</div>
+                        <div className="stat">
+                            <span className="stat-value">{comparisonResult.matches_found}</span>
+                            <span className="stat-label">Productos Coincidentes</span>
                         </div>
-                        <div className="stat-card">
-                            <div className="stat-value">${comparisonResult.stats.potential_savings.toFixed(2)}</div>
-                            <div className="stat-label">Ahorro Potencial</div>
-                        </div>
-                        <div className="stat-card">
-                            <div className="stat-value">{comparisonResult.stats.unique_products}</div>
-                            <div className="stat-label">Productos Únicos</div>
+                        <div className="stat">
+                            <span className="stat-value">${comparisonResult.potential_savings?.toFixed(2)}</span>
+                            <span className="stat-label">Ahorro Potencial</span>
                         </div>
                     </div>
 
-                    <div className="matches-section">
-                        <div className="section-header">
-                            <h3>Productos Coincidentes</h3>
-                            <button className="btn-create-listing" onClick={handleCreateMixedListing}>
-                                📋 Crear Listado con Mejores Precios
-                            </button>
-                        </div>
-
-                        <div className="matches-table-container">
-                            <table className="matches-table">
-                                <thead>
-                                    <tr>
-                                        <th>Producto</th>
-                                        {comparisonResult.catalogs.map((cat: any) => (
-                                            <th key={cat.id}>{cat.name}</th>
-                                        ))}
-                                        <th>Diferencia</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {comparisonResult.matches.map((match: any) => {
-                                        const productsByCatalog: Record<number, any> = {};
-                                        match.products.forEach((p: any) => {
-                                            productsByCatalog[p.catalog_id] = p;
-                                        });
-
-                                        return (
-                                            <tr key={match.match_id}>
-                                                <td className="product-name">{match.canonical_name}</td>
-                                                {comparisonResult.catalogs.map((cat: any) => {
-                                                    const product = productsByCatalog[cat.id];
-                                                    return (
-                                                        <td key={cat.id} className={product?.is_best_price ? 'best-price' : ''}>
-                                                            {product ? (
-                                                                <>
-                                                                    ${product.price?.toFixed(2) || '-'}
-                                                                    {product.is_best_price && ' ✓'}
-                                                                </>
-                                                            ) : '-'}
-                                                        </td>
-                                                    );
-                                                })}
-                                                <td className={match.price_range > 0 ? 'has-difference' : ''}>
-                                                    {match.price_range ? `$${match.price_range.toFixed(2)}` : '-'}
-                                                </td>
-                                            </tr>
-                                        );
-                                    })}
-                                </tbody>
-                            </table>
-                        </div>
+                    <div className="matches-table">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Producto</th>
+                                    {comparisonResult.lists?.map((list: any) => (
+                                        <th key={list.id}>{list.name}</th>
+                                    ))}
+                                    <th>Mejor Precio</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {comparisonResult.matches?.map((match: any, idx: number) => {
+                                    const productsByList: Record<number, any> = {};
+                                    match.products.forEach((p: any) => {
+                                        productsByList[p.list_id] = p;
+                                    });
+                                    return (
+                                        <tr key={idx}>
+                                            <td>{match.canonical_name}</td>
+                                            {comparisonResult.lists?.map((list: any) => {
+                                                const product = productsByList[list.id];
+                                                return (
+                                                    <td key={list.id} className={product?.is_best_price ? 'best-price' : ''}>
+                                                        {product ? `$${product.price}` : '-'}
+                                                    </td>
+                                                );
+                                            })}
+                                            <td className="best-price">${match.best_price}</td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
                     </div>
+
+                    <button
+                        onClick={handleCreateMixedListing}
+                        className="btn-secondary"
+                        disabled={createListingMutation.isPending}
+                    >
+                        {createListingMutation.isPending ? 'Creando...' : '📋 Crear Listado con Mejores Precios'}
+                    </button>
                 </div>
             )}
         </div>

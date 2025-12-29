@@ -3,7 +3,7 @@
  * 
  * REFACTORED: All "Catalog" references eliminated. Using "List" terminology.
  */
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from '@tanstack/react-query';
 import api from './api';
 
 // ============================================
@@ -131,14 +131,46 @@ export function useDeleteList() {
 // PRODUCTS
 // ============================================
 
+const PRODUCTS_PAGE_SIZE = 200;
+
 export function useProducts(listId?: number) {
     return useQuery({
         queryKey: ['products', listId],
         queryFn: async () => {
-            const params = listId ? { list_id: listId } : {};
+            const params: Record<string, any> = { page_size: 20000 };
+            if (listId) params.list_id = listId;
             const response = await api.get<{ products: Product[]; total: number }>('/products', { params });
             return response.data;
         },
+    });
+}
+
+/**
+ * Infinite scroll version of useProducts for large datasets.
+ * Loads products in pages as user scrolls.
+ */
+export function useInfiniteProducts(listId?: number) {
+    return useInfiniteQuery({
+        queryKey: ['products-infinite', listId],
+        queryFn: async ({ pageParam = 1 }) => {
+            const params: Record<string, any> = {
+                page: pageParam,
+                page_size: PRODUCTS_PAGE_SIZE,
+            };
+            if (listId) params.list_id = listId;
+            const response = await api.get<{
+                products: Product[];
+                total: number;
+                page: number;
+                page_size: number;
+            }>('/products', { params });
+            return response.data;
+        },
+        getNextPageParam: (lastPage) => {
+            const hasMore = lastPage.page * PRODUCTS_PAGE_SIZE < lastPage.total;
+            return hasMore ? lastPage.page + 1 : undefined;
+        },
+        initialPageParam: 1,
     });
 }
 
@@ -146,8 +178,22 @@ export function useUpdateProduct() {
     const queryClient = useQueryClient();
 
     return useMutation({
-        mutationFn: async ({ id, data }: { id: number; data: Partial<Product> }) => {
-            const response = await api.patch<Product>(`/products/${id}`, data);
+        mutationFn: async ({ listId, productId, data }: { listId: number; productId: number; data: Partial<Product> }) => {
+            const response = await api.patch<Product>(`/lists/${listId}/products/${productId}`, data);
+            return response.data;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['products'] });
+        },
+    });
+}
+
+export function useVerifyProduct() {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: async ({ listId, productId }: { listId: number; productId: number }) => {
+            const response = await api.patch<Product>(`/lists/${listId}/products/${productId}`, { status: 'verified' });
             return response.data;
         },
         onSuccess: () => {
@@ -295,9 +341,11 @@ export function useDeleteMixedListing() {
 // MASTER TABLE (Gestión Listados)
 // ============================================
 
+const MASTER_PRODUCTS_PAGE_SIZE = 200;
+
 export function useMasterProducts(params?: {
     viewMode?: 'enterprise' | 'client';
-    sortBy?: 'alphabetical' | 'brand' | 'description' | 'price';
+    sortBy?: 'index' | 'alphabetical' | 'brand' | 'description' | 'price';
     brandFilter?: string;
     reviewStatusFilter?: string;
     page?: number;
@@ -324,6 +372,44 @@ export function useMasterProducts(params?: {
             }>(`/master-products?${queryParams}`);
             return response.data;
         },
+    });
+}
+
+/**
+ * Infinite scroll version of useMasterProducts for large datasets.
+ * Loads products in pages as user scrolls.
+ */
+export function useInfiniteMasterProducts(params?: {
+    viewMode?: 'enterprise' | 'client';
+    sortBy?: 'index' | 'alphabetical' | 'brand' | 'description' | 'price';
+    brandFilter?: string;
+    reviewStatusFilter?: string;
+}) {
+    return useInfiniteQuery({
+        queryKey: ['master-products-infinite', params],
+        queryFn: async ({ pageParam = 1 }) => {
+            const queryParams = new URLSearchParams();
+            queryParams.append('page', pageParam.toString());
+            queryParams.append('limit', MASTER_PRODUCTS_PAGE_SIZE.toString());
+            if (params?.viewMode) queryParams.append('view_mode', params.viewMode);
+            if (params?.sortBy) queryParams.append('sort_by', params.sortBy);
+            if (params?.brandFilter) queryParams.append('brand_filter', params.brandFilter);
+            if (params?.reviewStatusFilter) queryParams.append('review_status_filter', params.reviewStatusFilter);
+
+            const response = await api.get<{
+                products: MasterProduct[];
+                total: number;
+                page: number;
+                limit: number;
+                has_next: boolean;
+                has_prev: boolean;
+            }>(`/master-products?${queryParams}`);
+            return response.data;
+        },
+        getNextPageParam: (lastPage) => {
+            return lastPage.has_next ? lastPage.page + 1 : undefined;
+        },
+        initialPageParam: 1,
     });
 }
 
@@ -381,6 +467,42 @@ export function useUpdateReviewStatus() {
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['master-products'] });
+        },
+    });
+}
+
+// ============================================
+// EXPORT
+// ============================================
+
+export function useExportPDF() {
+    return useMutation({
+        mutationFn: async () => {
+            const response = await api.get('/export/pdf', { responseType: 'blob' });
+            const url = window.URL.createObjectURL(new Blob([response.data]));
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', `listado_${Date.now()}.pdf`);
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            window.URL.revokeObjectURL(url);
+        },
+    });
+}
+
+export function useExportExcel() {
+    return useMutation({
+        mutationFn: async () => {
+            const response = await api.get('/export/excel', { responseType: 'blob' });
+            const url = window.URL.createObjectURL(new Blob([response.data]));
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', `listado_${Date.now()}.xlsx`);
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            window.URL.revokeObjectURL(url);
         },
     });
 }

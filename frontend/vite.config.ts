@@ -16,7 +16,40 @@ export default defineConfig({
     },
     build: {
         outDir: 'dist',
-        sourcemap: true,
+        sourcemap: false, // Disable sourcemaps in production for smaller bundle
+        minify: 'terser',
+        terserOptions: {
+            compress: {
+                drop_console: true,
+                drop_debugger: true,
+                pure_funcs: ['console.log', 'console.info'],
+            },
+        },
+        rollupOptions: {
+            output: {
+                manualChunks: {
+                    // Split vendor code for better caching
+                    'vendor-react': ['react', 'react-dom'],
+                    'vendor-query': ['@tanstack/react-query', '@tanstack/react-virtual'],
+                    'vendor-ui': [
+                        '@radix-ui/react-dialog',
+                        '@radix-ui/react-select',
+                        '@radix-ui/react-tabs',
+                        '@radix-ui/react-checkbox',
+                        '@radix-ui/react-switch',
+                        '@radix-ui/react-avatar',
+                        '@radix-ui/react-label',
+                        '@radix-ui/react-progress',
+                        '@radix-ui/react-scroll-area',
+                        '@radix-ui/react-separator',
+                        '@radix-ui/react-slot',
+                        '@radix-ui/react-tooltip',
+                    ],
+                    'vendor-icons': ['lucide-react'],
+                },
+            },
+        },
+        chunkSizeWarningLimit: 600, // Increase limit for vendor chunks
     },
     test: {
         globals: true,

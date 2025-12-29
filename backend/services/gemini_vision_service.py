@@ -1,9 +1,9 @@
 """
 Gemini Vision Service for intelligent document analysis.
 
-Uses Google's Gemini 1.5 Flash model via the google-genai SDK for:
+Uses Google's Gemini 2.5 Flash model via the google-genai SDK for:
 - Native PDF processing (no image conversion needed)
-- Extracting structured data from catalogs
+- Extracting structured data from price lists
 - Understanding product listings, prices, and descriptions
 - Handling various catalog formats automatically
 
@@ -60,7 +60,7 @@ class GeminiVisionService:
     """
     Service for analyzing catalogs using Gemini Vision.
     
-    Supports native PDF processing with Gemini 1.5 Flash,
+    Supports native PDF processing with Gemini 2.5 Flash,
     reducing API calls from N (per page) to 1 (per document).
     """
     

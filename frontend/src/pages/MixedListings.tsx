@@ -1,7 +1,7 @@
 /**
  * Página de Listados Mixtos.
  * 
- * Muestra y gestiona listados mixtos de productos de múltiples catálogos.
+ * Muestra y gestiona listados mixtos de productos de múltiples listas.
  */
 import { useState } from 'react';
 import { useMixedListings, useMixedListingProducts, useDeleteMixedListing, usePriceRanges } from '../services/queries';
@@ -36,11 +36,11 @@ export function MixedListingsPage() {
     const handleExportCSV = () => {
         if (!productsData?.products) return;
 
-        const headers = ['Producto', 'Precio', 'Catálogo', 'Rango de Precio', 'Mejor Precio'];
+        const headers = ['Producto', 'Precio', 'Lista', 'Rango de Precio', 'Mejor Precio'];
         const rows = productsData.products.map((p: any) => [
             p.name,
             p.price?.toFixed(2) || '',
-            p.catalog_name,
+            p.list_name || p.catalog_name,
             p.price_range_name || '',
             p.is_best_price ? 'Sí' : 'No'
         ]);
@@ -152,7 +152,7 @@ export function MixedListingsPage() {
                                 >
                                     <option value="price">Ordenar por precio</option>
                                     <option value="name">Ordenar por nombre</option>
-                                    <option value="catalog">Ordenar por catálogo</option>
+                                    <option value="list">Ordenar por lista</option>
                                 </select>
                             </div>
 
@@ -162,7 +162,7 @@ export function MixedListingsPage() {
                                         <tr>
                                             <th>Producto</th>
                                             <th>Precio</th>
-                                            <th>Catálogo</th>
+                                            <th>Lista</th>
                                             <th>Rango</th>
                                             <th>Estado</th>
                                         </tr>
@@ -174,7 +174,7 @@ export function MixedListingsPage() {
                                                 <td className="product-price">
                                                     {product.price ? `$${product.price.toFixed(2)}` : '-'}
                                                 </td>
-                                                <td>{product.catalog_name}</td>
+                                                <td>{product.list_name || product.catalog_name}</td>
                                                 <td>
                                                     {product.price_range_name && (
                                                         <span className={`badge badge-${product.price_range_name.toLowerCase()}`}>
@@ -204,7 +204,7 @@ export function MixedListingsPage() {
                         <div className="no-selection">
                             <div className="no-selection-icon">📋</div>
                             <p>Selecciona un listado para ver sus productos</p>
-                            <p className="hint">Los listados mixtos combinan productos de múltiples catálogos</p>
+                            <p className="hint">Los listados mixtos combinan productos de múltiples listas</p>
                         </div>
                     )}
                 </div>
