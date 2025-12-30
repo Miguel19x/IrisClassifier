@@ -61,7 +61,7 @@ class Settings(BaseSettings):
     # Processing
     batch_size: int = 20
     max_file_size_mb: int = 100
-    max_products_per_catalog: int = 10000
+    max_products_per_catalog: int = 100000
     
     # Security
     secret_key: str = "dev-secret-key-change-in-production"

@@ -18,6 +18,7 @@ from services.extractors.excel_parser import ExcelParser
 from services.extractors.ocr_extractor import OCRExtractor
 from services.extractors.gemini_extractor import GeminiExtractor
 from services.extractors.gemini_pdf_extractor import GeminiPDFExtractor
+from services.extractors.column_extractor import load_brands_from_database
 from services.classification_service import ClassificationService
 from services.etl_intelligent_service import ETLIntelligentService
 from core.exceptions import FileProcessingError, CatalogTooLarge
@@ -53,10 +54,15 @@ async def process_list_background(
     # Create a new database session for background processing
     db = next(get_db())
     try:
+        # Load known brands from database BEFORE extraction
+        # This ensures brand separation uses all historically learned brands
+        load_brands_from_database(db)
+        
         list_record = db.get(PriceList, list_id)
         if not list_record:
             logger.error("list_not_found", extra={"list_id": list_id})
             return
+
         
         # Create processing log
         log = ProcessingLog(
@@ -77,12 +83,18 @@ async def process_list_background(
             db.commit()
             
             # Extractor selection priority
+            # PDFs and Excel use local processing first, only falling back to AI when needed
             extractor = None
             if excel_parser.supports(mime_type):
                 extractor = excel_parser
-            elif gemini_pdf_extractor.supports(mime_type):
-                extractor = gemini_pdf_extractor
+            elif pdf_extractor.supports(mime_type):
+                # PDFExtractor now has tiered difficulty assessment:
+                # - EASY: Uses ColumnExtractor (same logic as Excel)
+                # - MEDIUM: Text extraction
+                # - HARD: Falls back to Gemini internally
+                extractor = pdf_extractor
             elif gemini_extractor.supports(mime_type):
+                # Images still use Gemini primarily
                 extractor = gemini_extractor
             elif ocr_extractor.supports(mime_type):
                 extractor = ocr_extractor

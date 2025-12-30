@@ -59,6 +59,23 @@ export function ProductsPage({ selectedListId: initialListId }: ProductsPageProp
     // Use the internal list id, but prefer the prop if provided
     const activeListId = initialListId || internalListId;
 
+    const [searchInput, setSearchInput] = useState('');
+    const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'verified'>('all');
+    const [sortBy, setSortBy] = useState<'index' | 'alphabetical' | 'brand' | 'price'>('index');
+    const [editingId, setEditingId] = useState<number | null>(null);
+    const [editValues, setEditValues] = useState<Partial<Product>>({});
+
+    // Debounce search to avoid too many API calls
+    const [debouncedSearch, setDebouncedSearch] = useState('');
+
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            setDebouncedSearch(searchInput);
+        }, 300);
+        return () => clearTimeout(timer);
+    }, [searchInput]);
+
+    // Fetch from server with filters and sorting
     const {
         data: productsData,
         isLoading: productsLoading,
@@ -66,22 +83,21 @@ export function ProductsPage({ selectedListId: initialListId }: ProductsPageProp
         fetchNextPage,
         hasNextPage,
         isFetchingNextPage,
-    } = useInfiniteProducts(activeListId || undefined);
+    } = useInfiniteProducts(activeListId || undefined, {
+        search: debouncedSearch || undefined,
+        statusFilter: statusFilter !== 'all' ? statusFilter : undefined,
+        sortBy: sortBy,
+    });
+
     const updateProductMutation = useUpdateProduct();
     const verifyProductMutation = useVerifyProduct();
-
-    const [searchQuery, setSearchQuery] = useState('');
-    const [sortBy, setSortBy] = useState<'original' | 'alpha' | 'brand' | 'price'>('original');
-    const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'verified'>('all');
-    const [editingId, setEditingId] = useState<number | null>(null);
-    const [editValues, setEditValues] = useState<Partial<Product>>({});
 
     // Ref for virtualization container
     const tableContainerRef = useRef<HTMLDivElement>(null);
 
     const lists: ListItem[] = (listsData?.lists || []) as ListItem[];
 
-    // Flatten all pages of products
+    // Flatten all pages of products (already filtered and sorted by server - always by index)
     const products: Product[] = useMemo(() => {
         if (!productsData?.pages) return [];
         return productsData.pages.flatMap(page => page.products) as Product[];
@@ -95,52 +111,16 @@ export function ProductsPage({ selectedListId: initialListId }: ProductsPageProp
         const listId = parseInt(value);
         if (listId) {
             setInternalListId(listId);
-            setSearchQuery('');
+            setSearchInput('');
             setStatusFilter('all');
             // Dispatch event for App.tsx to update selectedListId
             window.dispatchEvent(new CustomEvent('selectList', { detail: listId }));
         }
     };
 
-    // Filter and sort products
-    const filteredProducts = useMemo(() => {
-        let result = [...products];
-
-        // Search filter
-        if (searchQuery) {
-            const query = searchQuery.toLowerCase();
-            result = result.filter(
-                (p) =>
-                    p.code?.toLowerCase().includes(query) ||
-                    p.name?.toLowerCase().includes(query) ||
-                    p.brand?.toLowerCase().includes(query)
-            );
-        }
-
-        // Status filter
-        if (statusFilter !== 'all') {
-            result = result.filter((p) => p.status === statusFilter);
-        }
-
-        // Sort
-        switch (sortBy) {
-            case 'alpha':
-                result.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-                break;
-            case 'brand':
-                result.sort((a, b) => (a.brand || '').localeCompare(b.brand || ''));
-                break;
-            case 'price':
-                result.sort((a, b) => (a.price || 0) - (b.price || 0));
-                break;
-        }
-
-        return result;
-    }, [products, searchQuery, statusFilter, sortBy]);
-
     // Virtualizer for table rows
     const rowVirtualizer = useVirtualizer({
-        count: filteredProducts.length,
+        count: products.length,
         getScrollElement: () => tableContainerRef.current,
         estimateSize: () => ROW_HEIGHT,
         overscan: 10, // Render 10 extra rows for smooth scrolling
@@ -313,20 +293,20 @@ export function ProductsPage({ selectedListId: initialListId }: ProductsPageProp
                                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                                         <Input
                                             placeholder="Buscar por código, descripción o marca..."
-                                            value={searchQuery}
-                                            onChange={(e) => setSearchQuery(e.target.value)}
+                                            value={searchInput}
+                                            onChange={(e) => setSearchInput(e.target.value)}
                                             className="pl-10"
                                         />
                                     </div>
                                     <div className="flex gap-2">
                                         <Select value={sortBy} onValueChange={(v: typeof sortBy) => setSortBy(v)}>
-                                            <SelectTrigger className="w-[160px]">
+                                            <SelectTrigger className="w-[140px]">
                                                 <SortAsc className="h-4 w-4 mr-2" />
                                                 <SelectValue />
                                             </SelectTrigger>
                                             <SelectContent>
-                                                <SelectItem value="original">Original</SelectItem>
-                                                <SelectItem value="alpha">Alfabético</SelectItem>
+                                                <SelectItem value="index">Original</SelectItem>
+                                                <SelectItem value="alphabetical">Alfabético</SelectItem>
                                                 <SelectItem value="brand">Por Marca</SelectItem>
                                                 <SelectItem value="price">Por Precio</SelectItem>
                                             </SelectContent>
@@ -354,7 +334,7 @@ export function ProductsPage({ selectedListId: initialListId }: ProductsPageProp
                         <Card variant="glass" className="overflow-hidden">
                             {/* Table Header */}
                             <div className="bg-secondary">
-                                <div className="grid grid-cols-[60px_120px_1fr_120px_100px_100px] p-4 text-sm font-medium text-foreground">
+                                <div className="grid grid-cols-[50px_150px_1fr_150px_80px_90px] p-4 text-sm font-medium text-foreground">
                                     <div>N°</div>
                                     <div>Código</div>
                                     <div>Descripción</div>
@@ -378,13 +358,13 @@ export function ProductsPage({ selectedListId: initialListId }: ProductsPageProp
                                     }}
                                 >
                                     {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-                                        const product = filteredProducts[virtualRow.index];
+                                        const product = products[virtualRow.index];
                                         const rowIndex = virtualRow.index + 1;
 
                                         return (
                                             <div
                                                 key={product.id}
-                                                className="grid grid-cols-[60px_120px_1fr_120px_100px_100px] items-center p-4 border-b border-border hover:bg-secondary/50 absolute w-full"
+                                                className="grid grid-cols-[50px_150px_1fr_150px_80px_90px] items-center p-4 border-b border-border hover:bg-secondary/50 absolute w-full"
                                                 style={{
                                                     height: `${virtualRow.size}px`,
                                                     transform: `translateY(${virtualRow.start}px)`,
@@ -500,11 +480,11 @@ export function ProductsPage({ selectedListId: initialListId }: ProductsPageProp
                             </div>
 
                             {/* Product Count Footer */}
-                            {filteredProducts.length > 0 && (
+                            {products.length > 0 && (
                                 <div className="p-4 border-t border-border text-sm text-muted-foreground flex items-center justify-between">
                                     <span>
                                         {products.length} de {totalProducts} productos cargados
-                                        {searchQuery && ` (${filteredProducts.length} filtrados)`}
+                                        {debouncedSearch && ` (búsqueda: "${debouncedSearch}")`}
                                     </span>
                                     {isFetchingNextPage && (
                                         <span className="animate-pulse">Cargando más...</span>

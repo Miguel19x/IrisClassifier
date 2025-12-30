@@ -22,6 +22,9 @@ router = APIRouter()
 @router.get("/products", response_model=ProductList)
 def list_products(
     list_id: Optional[int] = Query(None, description="Filter by price list ID"),
+    search: Optional[str] = Query(None, min_length=1, max_length=100, description="Search in code, name, brand"),
+    status_filter: Optional[str] = Query(None, regex="^(pending|verified)$", description="Filter by status"),
+    sort_by: str = Query("index", regex="^(index|alphabetical|brand|price)$", description="Sort order"),
     price_range_id: Optional[int] = Query(None, description="Filter by price range"),
     min_price: Optional[float] = Query(None, ge=0, description="Minimum price"),
     max_price: Optional[float] = Query(None, ge=0, description="Maximum price"),
@@ -32,13 +35,31 @@ def list_products(
     """
     List products with optional filters.
     
-    Supports filtering by price list, price range, and price.
-    Returns paginated results.
+    Supports:
+    - search: Text search across code, name, and brand
+    - status_filter: Filter by verification status (pending/verified)
+    - sort_by: Sort order (index, alphabetical, brand, price)
+    - list_id: Filter by price list
+    - price filters: min_price, max_price
     """
     query = select(Product)
     
     if list_id:
         query = query.where(Product.list_id == list_id)
+    
+    # Apply search filter
+    if search:
+        search_term = f"%{search.lower()}%"
+        query = query.where(
+            (func.lower(Product.code).like(search_term)) |
+            (func.lower(Product.name).like(search_term)) |
+            (func.lower(Product.brand).like(search_term))
+        )
+    
+    # Apply status filter
+    if status_filter:
+        query = query.where(Product.status == status_filter)
+    
     if price_range_id:
         query = query.where(Product.price_range_id == price_range_id)
     if min_price is not None:
@@ -46,13 +67,29 @@ def list_products(
     if max_price is not None:
         query = query.where(Product.price <= max_price)
     
-    # Order by row_index to maintain original document order
-    query = query.order_by(Product.row_index.asc())
+    # Apply sorting
+    if sort_by == "index":
+        query = query.order_by(Product.row_index.asc())
+    elif sort_by == "alphabetical":
+        query = query.order_by(func.lower(Product.name).asc(), Product.row_index.asc())
+    elif sort_by == "brand":
+        query = query.order_by(func.lower(Product.brand).asc(), func.lower(Product.name).asc(), Product.row_index.asc())
+    elif sort_by == "price":
+        query = query.order_by(Product.price.asc(), Product.row_index.asc())
     
-    # Get total count
+    # Get total count (must match all filters)
     count_query = select(func.count(Product.id))
     if list_id:
         count_query = count_query.where(Product.list_id == list_id)
+    if search:
+        search_term = f"%{search.lower()}%"
+        count_query = count_query.where(
+            (func.lower(Product.code).like(search_term)) |
+            (func.lower(Product.name).like(search_term)) |
+            (func.lower(Product.brand).like(search_term))
+        )
+    if status_filter:
+        count_query = count_query.where(Product.status == status_filter)
     if price_range_id:
         count_query = count_query.where(Product.price_range_id == price_range_id)
     if min_price is not None:

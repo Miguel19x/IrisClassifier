@@ -3,6 +3,8 @@ Excel parser using pandas.
 
 Extracts products and prices from Excel files (.xlsx, .xls).
 Supports flexible catalog schemas with smart header detection.
+
+Uses shared ColumnExtractor for column mapping and validation.
 """
 import io
 import logging
@@ -15,32 +17,16 @@ except ImportError:
     pd = None
 
 from .base import BaseExtractor, RawProduct
+from .column_extractor import (
+    get_column_extractor,
+    ColumnExtractor,
+    HEADER_KEYWORDS,
+    SKIP_PATTERNS,
+    PRICE_PLACEHOLDERS
+)
 from core.exceptions import FileProcessingError
 
 logger = logging.getLogger(__name__)
-
-
-# Known header keywords for column detection
-HEADER_KEYWORDS = {
-    'code': ['codigo', 'código', 'code', 'ref', 'referencia', 'sku', 'part', 'parte'],
-    'name': ['descripcion', 'descripción', 'nombre', 'producto', 'item', 'name', 'description'],
-    'brand': ['marca', 'brand', 'fabricante', 'manufacturer'],
-    'price': ['precio', 'price', 'usd', 'eur', 'bs', 'valor', 'costo', 'cost', 'amount', 'pvp'],
-}
-
-# Rows to skip (metadata, titles, categories)
-SKIP_PATTERNS = [
-    r'^lista\s+de\s+precios?$',
-    r'^a[ñn]o\s+\d{4}$',
-    r'^email:?\s*',
-    r'^\d{4}$',  # Just a year
-    r'^rif\s*[j-]\d+',
-    r'^fua\d+',
-    r'^alternadores?\s*auto$',
-    r'^alternadores?$',
-    r'^categoria',
-    r'^\s*$',
-]
 
 
 class ExcelParser(BaseExtractor):
@@ -53,7 +39,14 @@ class ExcelParser(BaseExtractor):
     - Metadata/category row skipping
     - Column auto-detection for código, descripción, marca, precio
     - Formula evaluation
+    
+    Uses shared ColumnExtractor for consistent column detection.
     """
+    
+    def __init__(self):
+        """Initialize Excel parser with shared ColumnExtractor."""
+        super().__init__()
+        self.column_extractor = get_column_extractor()
     
     def supports(self, mime_type: str) -> bool:
         """Check if this extractor supports Excel files."""
@@ -162,28 +155,68 @@ class ExcelParser(BaseExtractor):
         """Extract products from a dataframe with detected columns."""
         products = []
         
-        # Map columns to their purpose
-        column_map = self._map_columns(df.columns)
+        # Log all column names pandas found (for debugging merged cells)
+        logger.info(
+            "excel_raw_columns",
+            extra={
+                "sheet": sheet_name,
+                "columns": list(df.columns),
+                "column_count": len(df.columns)
+            }
+        )
+        
+        # Map columns to their purpose (header-based first)
+        header_map = self._map_columns(df.columns)
+        
+        logger.info(
+            "excel_header_map",
+            extra={"header_based": header_map}
+        )
+        
+        # Enhance with content-based detection for misaligned headers
+        column_map = self._map_columns_by_content(df, header_map)
         
         logger.info(
             "excel_columns_mapped",
             extra={
                 "sheet": sheet_name,
-                "code_col": column_map.get('code'),
+                "reference_col": column_map.get('reference'),
+                "internal_code_col": column_map.get('internal_code'),
                 "name_col": column_map.get('name'),
                 "brand_col": column_map.get('brand'),
                 "price_col": column_map.get('price'),
+                "detection_method": "header+content"
             }
         )
         
         # We need at least a name/description column
         name_col = column_map.get('name')
         if name_col is None:
-            # Fallback: use first text-like column
+            # Fallback: find the text column with LONGEST average content
+            # This ensures we get the description column, not a short code column
+            best_col = None
+            best_avg_len = 0
+            
             for col in df.columns:
+                # Skip columns already mapped to other purposes
+                if col in column_map.values():
+                    continue
+                    
                 if df[col].dtype == object:
-                    name_col = col
-                    break
+                    # Calculate average string length for this column
+                    sample = df[col].head(20).dropna()
+                    if len(sample) > 0:
+                        avg_len = sample.astype(str).str.len().mean()
+                        # Description columns typically have longer text (>30 chars avg)
+                        if avg_len > best_avg_len:
+                            best_avg_len = avg_len
+                            best_col = col
+            
+            # Only use if average length suggests descriptions, not codes
+            if best_col and best_avg_len > 15:
+                name_col = best_col
+                logger.info(f"Fallback name column: {best_col} (avg length: {best_avg_len:.1f})")
+
         
         if name_col is None:
             logger.warning("excel_no_name_column")
@@ -200,17 +233,42 @@ class ExcelParser(BaseExtractor):
             if self._should_skip_row(name_value):
                 continue
             
-            # Extract code
-            code_col = column_map.get('code')
-            code_value = str(row[code_col]).strip() if code_col and pd.notna(row.get(code_col)) else ""
-            if code_value.lower() in ['nan', 'none']:
-                code_value = ""
+            # Extract code - PRIORITIZE REFERENCE over internal_code
+            # 'reference' column (REFERENCIA) = actual product code
+            # 'internal_code' column (CODIGO) = distributor's internal code
+            ref_col = column_map.get('reference')
+            internal_code_col = column_map.get('internal_code')
+            
+            # Get reference value (actual product code)
+            ref_value = ""
+            if ref_col and pd.notna(row.get(ref_col)):
+                ref_value = str(row[ref_col]).strip()
+                if ref_value.lower() in ['nan', 'none']:
+                    ref_value = ""
+            
+            # Get internal code value (distributor code)
+            internal_code_value = ""
+            if internal_code_col and pd.notna(row.get(internal_code_col)):
+                internal_code_value = str(row[internal_code_col]).strip()
+                if internal_code_value.lower() in ['nan', 'none']:
+                    internal_code_value = ""
+            
+            # Use REFERENCE as primary code, fallback to internal_code if no reference
+            code_value = ref_value if ref_value else internal_code_value
             
             # Extract brand
             brand_col = column_map.get('brand')
             brand_value = str(row[brand_col]).strip() if brand_col and pd.notna(row.get(brand_col)) else ""
             if brand_value.lower() in ['nan', 'none']:
                 brand_value = ""
+            
+            # Try to separate brand from code if brand not found
+            # Examples: "28-124 HARFON" -> code="28-124", brand="HARFON"
+            if code_value and not brand_value:
+                separated_code, separated_brand = self.column_extractor.separate_brand_from_code(code_value)
+                if separated_brand:
+                    code_value = separated_code
+                    brand_value = separated_brand
             
             # Extract price
             price_col = column_map.get('price')
@@ -226,20 +284,27 @@ class ExcelParser(BaseExtractor):
             if price_text.lower() in ['nan', 'none']:
                 price_text = ""
             
+            # Check if price is just a placeholder (dash, empty, etc.)
+            price_is_placeholder = (
+                not price_text or 
+                price_text.strip() in ['-', '--', '---', 'n/a', 'N/A', '$', '-$', '0', '0.00', '0,00']
+            )
+            
             # SUBTITLE DETECTION:
-            # A row with description but missing code, brand, AND price is a subtitle/category
+            # A row with description but missing code, brand, AND has no real price is a subtitle/category
             # Skip these rows as they are not products
             has_code = bool(code_value)
             has_brand = bool(brand_value)
-            has_price = bool(price_text)
+            has_real_price = not price_is_placeholder
             
-            if not has_code and not has_brand and not has_price:
-                logger.debug(
+            if not has_code and not has_brand and not has_real_price:
+                logger.info(
                     "excel_subtitle_detected",
                     extra={
                         "subtitle": name_value,
                         "row_index": idx,
                         "sheet": sheet_name,
+                        "price_text": price_text,
                     }
                 )
                 continue  # Skip subtitle/category rows
@@ -247,14 +312,16 @@ class ExcelParser(BaseExtractor):
             # Build columns dict for structured data
             columns = {
                 'code': code_value,
+                'internal_code': internal_code_value,  # Distributor's internal code
                 'name': name_value,
                 'brand': brand_value,
                 'price': price_text,
             }
             
             # Add any other columns
+            used_cols = [name_col, ref_col, internal_code_col, brand_col, price_col]
             for col in df.columns:
-                if col not in [name_col, code_col, brand_col, price_col]:
+                if col not in used_cols:
                     val = row.get(col)
                     if pd.notna(val):
                         col_str = str(val).strip()
@@ -276,16 +343,139 @@ class ExcelParser(BaseExtractor):
         column_map = {}
         
         for col in columns:
-            col_lower = str(col).lower().strip()
+            col_str = str(col).strip()
+            col_lower = col_str.lower()
+            
+            # SKIP 'Unnamed' columns - these are artifacts of merged cells
+            if col_lower.startswith('unnamed'):
+                continue
             
             # Check each category of keywords
             for purpose, keywords in HEADER_KEYWORDS.items():
                 if purpose in column_map:
                     continue  # Already found this column type
                 
-                if any(kw in col_lower for kw in keywords):
-                    column_map[purpose] = col
-                    break
+                # Use word-boundary matching to avoid 'name' matching 'unnamed'
+                for kw in keywords:
+                    # Exact match or keyword at word boundary
+                    if col_lower == kw or col_lower.startswith(kw + ' ') or col_lower.endswith(' ' + kw) or (' ' + kw + ' ') in col_lower:
+                        column_map[purpose] = col
+                        break
+                    # Also check if the column starts with the keyword (e.g., "DESCRIPCION PRODUCTO")
+                    if col_lower.startswith(kw):
+                        column_map[purpose] = col
+                        break
+                else:
+                    continue
+                break
+        
+        return column_map
+    
+    def _map_columns_by_content(
+        self, 
+        df: 'pd.DataFrame', 
+        header_map: Dict[str, str]
+    ) -> Dict[str, str]:
+        """
+        Enhanced column mapping using content analysis.
+        
+        When headers are misaligned (merged cells, different positions),
+        this method analyzes actual data content to determine column purposes.
+        
+        Also VALIDATES header-mapped columns to ensure they contain expected data types.
+        If a column mapped by header doesn't match expected content, it's remapped.
+        
+        Patterns detected:
+        - price: Numeric values with decimals/currency symbols
+        - code: Alphanumeric patterns like "B11-3701110BB", "ALT01037"
+        - brand: Short uppercase strings (2-20 chars)
+        - name: Longer descriptive text
+        """
+        # Sample first 20 data rows for analysis
+        sample_df = df.head(20)
+        
+        # Patterns for content detection
+        price_pattern = re.compile(r'^[\$€]?\s*[\d\.,]+\s*[\$€]?$')
+        code_pattern = re.compile(r'^[A-Z0-9][\w\-]{2,30}$', re.IGNORECASE)
+        
+        # STEP 1: Validate header-based mappings
+        validated_map = {}
+        for purpose, col in header_map.items():
+            is_valid = self._validate_column_content(
+                sample_df, col, purpose, price_pattern, code_pattern
+            )
+            if is_valid:
+                validated_map[purpose] = col
+            else:
+                logger.warning(
+                    f"Column '{col}' mapped as '{purpose}' by header but content doesn't match - removing mapping"
+                )
+        
+        # STEP 2: Content-based detection for unmapped columns
+        column_map = validated_map.copy()
+        column_scores = {}
+        
+        for col in df.columns:
+            if col in column_map.values():
+                continue  # Already mapped and validated
+            
+            scores = {
+                'price': 0,
+                'reference': 0,
+                'internal_code': 0,
+                'brand': 0,
+                'name': 0
+            }
+            
+            for val in sample_df[col].dropna():
+                val_str = str(val).strip()
+                if not val_str or val_str.lower() in ['nan', 'none']:
+                    continue
+                
+                # Price detection: numbers with decimal, $ symbol
+                if price_pattern.match(val_str.replace(',', '.').replace(' ', '')):
+                    scores['price'] += 2
+                
+                # Code detection: alphanumeric with dashes
+                elif code_pattern.match(val_str):
+                    # Longer codes with letters+numbers = reference
+                    if len(val_str) > 5 and re.search(r'[A-Z].*\d|\d.*[A-Z]', val_str.upper()):
+                        scores['reference'] += 1
+                    # Short codes often internal
+                    elif len(val_str) <= 10:
+                        scores['internal_code'] += 1
+                
+                # Brand detection: short uppercase words
+                elif len(val_str) <= 20 and val_str.isupper() and val_str.isalpha():
+                    scores['brand'] += 1
+                
+                # Name detection: longer text
+                elif len(val_str) > 20:
+                    scores['name'] += 1
+            
+            column_scores[col] = scores
+        
+        # Assign columns based on highest scores (if not already mapped)
+        for purpose in ['price', 'name', 'reference', 'internal_code', 'brand']:
+            if purpose in column_map:
+                continue
+            
+            best_col = None
+            best_score = 0
+            
+            for col, scores in column_scores.items():
+                if col in column_map.values():
+                    continue
+                if scores[purpose] > best_score:
+                    best_score = scores[purpose]
+                    best_col = col
+            
+            # Only assign if we have reasonable confidence
+            if best_col and best_score >= 3:
+                column_map[purpose] = best_col
+                logger.debug(
+                    f"Content-based column detection: {purpose} -> {best_col} (score: {best_score})"
+                )
         
         return column_map
     
@@ -298,3 +488,65 @@ class ExcelParser(BaseExtractor):
                 return True
         
         return False
+    
+    def _validate_column_content(
+        self,
+        df: 'pd.DataFrame',
+        col_name: str,
+        purpose: str,
+        price_pattern: re.Pattern,
+        code_pattern: re.Pattern
+    ) -> bool:
+        """
+        Validate if a column's content matches its expected purpose.
+        Returns True if the content looks valid for the mapped purpose.
+        """
+        if col_name not in df.columns:
+            return False
+            
+        values = df[col_name].dropna().astype(str).tolist()
+        if not values:
+            return False # Empty column is not valid for required fields
+            
+        valid_count = 0
+        total_count = len(values)
+        
+        for val in values:
+            val = val.strip()
+            if not val or val.lower() in ['nan', 'none']:
+                total_count -= 1
+                continue
+                
+            if purpose == 'price':
+                # clean price
+                val_clean = val.replace(',', '.').replace(' ', '').replace('$', '').replace('€', '')
+                try:
+                    float(val_clean)
+                    valid_count += 1
+                except ValueError:
+                    pass
+                    
+            elif purpose in ['reference', 'internal_code']:
+                if code_pattern.match(val):
+                    # disqualifiers for codes
+                    if len(val) > 40 or ' ' in val: # Codes usually don't have spaces (except some brands)
+                         # Simple check: if it looks like a description (multiple words), it's not a code
+                         if len(val.split()) > 2:
+                             continue
+                    valid_count += 1
+                    
+            elif purpose == 'brand':
+                if len(val) <= 20 and val.isupper():
+                    valid_count += 1
+                    
+            elif purpose == 'name':
+                # Names are loose, but shouldn't be just numbers
+                if len(val) > 3 and not val.replace('.','').isdigit():
+                    valid_count += 1
+        
+        if total_count == 0:
+            return False
+            
+        # Threshold: at least 40% of rows must match the expected pattern
+        # This is lenient because of potential dirty data or subtitle rows
+        return (valid_count / total_count) >= 0.4

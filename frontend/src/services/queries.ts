@@ -3,7 +3,7 @@
  * 
  * REFACTORED: All "Catalog" references eliminated. Using "List" terminology.
  */
-import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, useInfiniteQuery, keepPreviousData } from '@tanstack/react-query';
 import api from './api';
 
 // ============================================
@@ -149,21 +149,29 @@ export function useProducts(listId?: number) {
  * Infinite scroll version of useProducts for large datasets.
  * Loads products in pages as user scrolls.
  */
-export function useInfiniteProducts(listId?: number) {
+export function useInfiniteProducts(listId?: number, params?: {
+    search?: string;
+    statusFilter?: 'pending' | 'verified';
+    sortBy?: 'index' | 'alphabetical' | 'brand' | 'price';
+}) {
     return useInfiniteQuery({
-        queryKey: ['products-infinite', listId],
+        queryKey: ['products-infinite', listId, params],
         queryFn: async ({ pageParam = 1 }) => {
-            const params: Record<string, any> = {
+            const queryParams: Record<string, any> = {
                 page: pageParam,
                 page_size: PRODUCTS_PAGE_SIZE,
             };
-            if (listId) params.list_id = listId;
+            if (listId) queryParams.list_id = listId;
+            if (params?.search) queryParams.search = params.search;
+            if (params?.statusFilter) queryParams.status_filter = params.statusFilter;
+            if (params?.sortBy) queryParams.sort_by = params.sortBy;
+
             const response = await api.get<{
                 products: Product[];
                 total: number;
                 page: number;
                 page_size: number;
-            }>('/products', { params });
+            }>('/products', { params: queryParams });
             return response.data;
         },
         getNextPageParam: (lastPage) => {
@@ -171,6 +179,8 @@ export function useInfiniteProducts(listId?: number) {
             return hasMore ? lastPage.page + 1 : undefined;
         },
         initialPageParam: 1,
+        // Keep previous data while fetching new - prevents page reset on search
+        placeholderData: keepPreviousData,
     });
 }
 
@@ -382,6 +392,7 @@ export function useMasterProducts(params?: {
 export function useInfiniteMasterProducts(params?: {
     viewMode?: 'enterprise' | 'client';
     sortBy?: 'index' | 'alphabetical' | 'brand' | 'description' | 'price';
+    search?: string;
     brandFilter?: string;
     reviewStatusFilter?: string;
 }) {
@@ -393,6 +404,7 @@ export function useInfiniteMasterProducts(params?: {
             queryParams.append('limit', MASTER_PRODUCTS_PAGE_SIZE.toString());
             if (params?.viewMode) queryParams.append('view_mode', params.viewMode);
             if (params?.sortBy) queryParams.append('sort_by', params.sortBy);
+            if (params?.search) queryParams.append('search', params.search);
             if (params?.brandFilter) queryParams.append('brand_filter', params.brandFilter);
             if (params?.reviewStatusFilter) queryParams.append('review_status_filter', params.reviewStatusFilter);
 
@@ -410,6 +422,8 @@ export function useInfiniteMasterProducts(params?: {
             return lastPage.has_next ? lastPage.page + 1 : undefined;
         },
         initialPageParam: 1,
+        // Keep previous data while fetching new - prevents page reset on search
+        placeholderData: keepPreviousData,
     });
 }
 
@@ -434,7 +448,7 @@ export function useUpdateMargin() {
             return response.data;
         },
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['master-products'] });
+            queryClient.invalidateQueries({ queryKey: ['master-products-infinite'] });
         },
     });
 }
@@ -450,7 +464,7 @@ export function useUpdateFinalPrice() {
             return response.data;
         },
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['master-products'] });
+            queryClient.invalidateQueries({ queryKey: ['master-products-infinite'] });
         },
     });
 }
@@ -475,11 +489,13 @@ export function useUpdateReviewStatus() {
 // EXPORT
 // ============================================
 
-export function useExportPDF() {
+export function useExportPDF(viewMode: 'enterprise' | 'client' = 'enterprise') {
     return useMutation({
         mutationFn: async () => {
-            const response = await api.get('/export/pdf', { responseType: 'blob' });
-            const url = window.URL.createObjectURL(new Blob([response.data]));
+            const response = await api.get(`/master-products/export?format=pdf&view_mode=${viewMode}`, {
+                responseType: 'blob'
+            });
+            const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }));
             const link = document.createElement('a');
             link.href = url;
             link.setAttribute('download', `listado_${Date.now()}.pdf`);
@@ -491,11 +507,13 @@ export function useExportPDF() {
     });
 }
 
-export function useExportExcel() {
+export function useExportExcel(viewMode: 'enterprise' | 'client' = 'enterprise') {
     return useMutation({
         mutationFn: async () => {
-            const response = await api.get('/export/excel', { responseType: 'blob' });
-            const url = window.URL.createObjectURL(new Blob([response.data]));
+            const response = await api.get(`/master-products/export?format=excel&view_mode=${viewMode}`, {
+                responseType: 'blob'
+            });
+            const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
             const link = document.createElement('a');
             link.href = url;
             link.setAttribute('download', `listado_${Date.now()}.xlsx`);

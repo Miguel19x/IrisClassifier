@@ -42,6 +42,35 @@ interface MasterProduct {
 const ROW_HEIGHT = 56; // Fixed row height for virtualization
 
 export function ListingsManagementPage() {
+    const [view, setView] = useState<'business' | 'client'>('business');
+    const [heatmapEnabled, setHeatmapEnabled] = useState(false);
+    const [searchInput, setSearchInput] = useState('');
+    const [sortBy, setSortBy] = useState<'alpha' | 'brand' | 'price'>('alpha');
+    const [editingCell, setEditingCell] = useState<{ id: number; field: 'margin' | 'finalPrice' } | null>(null);
+    const [editValue, setEditValue] = useState('');
+
+    // Debounce search to avoid too many API calls
+    const [debouncedSearch, setDebouncedSearch] = useState('');
+
+    // Update debounced search after 300ms of no typing
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            setDebouncedSearch(searchInput);
+        }, 300);
+        return () => clearTimeout(timer);
+    }, [searchInput]);
+
+    // Map frontend sort values to backend values
+    const getSortByParam = () => {
+        switch (sortBy) {
+            case 'alpha': return 'alphabetical';
+            case 'brand': return 'brand';
+            case 'price': return 'price';
+            default: return 'alphabetical';
+        }
+    };
+
+    // Fetch from server with filters
     const {
         data: productsData,
         isLoading,
@@ -49,24 +78,23 @@ export function ListingsManagementPage() {
         fetchNextPage,
         hasNextPage,
         isFetchingNextPage,
-    } = useInfiniteMasterProducts();
+    } = useInfiniteMasterProducts({
+        viewMode: view === 'business' ? 'enterprise' : 'client',
+        sortBy: getSortByParam() as 'alphabetical' | 'brand' | 'price',
+        search: debouncedSearch || undefined,
+    });
+
     const { data: statsData } = usePriceStats();
-    const exportPDFMutation = useExportPDF();
-    const exportExcelMutation = useExportExcel();
+    const viewModeForExport = view === 'business' ? 'enterprise' : 'client';
+    const exportPDFMutation = useExportPDF(viewModeForExport);
+    const exportExcelMutation = useExportExcel(viewModeForExport);
     const updateMarginMutation = useUpdateMargin();
     const updateFinalPriceMutation = useUpdateFinalPrice();
-
-    const [view, setView] = useState<'business' | 'client'>('business');
-    const [heatmapEnabled, setHeatmapEnabled] = useState(false);
-    const [searchQuery, setSearchQuery] = useState('');
-    const [sortBy, setSortBy] = useState<'original' | 'alpha' | 'brand' | 'price'>('original');
-    const [editingCell, setEditingCell] = useState<{ id: number; field: 'margin' | 'finalPrice' } | null>(null);
-    const [editValue, setEditValue] = useState('');
 
     // Ref for virtualization container
     const tableContainerRef = useRef<HTMLDivElement>(null);
 
-    // Flatten all pages of products
+    // Flatten all pages of products (already filtered and sorted by server)
     const products: MasterProduct[] = useMemo(() => {
         if (!productsData?.pages) return [];
         return productsData.pages.flatMap(page => page.products) as MasterProduct[];
@@ -85,38 +113,9 @@ export function ListingsManagementPage() {
         return 'heatmap-high';
     };
 
-    // Filter and sort products
-    const filteredProducts = useMemo(() => {
-        let result = [...products];
-
-        if (searchQuery) {
-            const query = searchQuery.toLowerCase();
-            result = result.filter(
-                (p) =>
-                    p.clean_code?.toLowerCase().includes(query) ||
-                    p.description?.toLowerCase().includes(query) ||
-                    p.brand?.toLowerCase().includes(query)
-            );
-        }
-
-        switch (sortBy) {
-            case 'alpha':
-                result.sort((a, b) => (a.description || '').localeCompare(b.description || ''));
-                break;
-            case 'brand':
-                result.sort((a, b) => (a.brand || '').localeCompare(b.brand || ''));
-                break;
-            case 'price':
-                result.sort((a, b) => (a.price_usd || 0) - (b.price_usd || 0));
-                break;
-        }
-
-        return result;
-    }, [products, searchQuery, sortBy]);
-
     // Virtualizer for table rows
     const rowVirtualizer = useVirtualizer({
-        count: filteredProducts.length,
+        count: products.length,
         getScrollElement: () => tableContainerRef.current,
         estimateSize: () => ROW_HEIGHT,
         overscan: 10, // Render 10 extra rows for smooth scrolling
@@ -153,11 +152,9 @@ export function ListingsManagementPage() {
     const handleCellSave = useCallback(async () => {
         if (!editingCell) return;
 
-        const value = parseFloat(editValue);
-        if (isNaN(value)) {
-            setEditingCell(null);
-            return;
-        }
+        // Allow saving even if value is empty/NaN - default to 0
+        const parsedValue = parseFloat(editValue);
+        const value = isNaN(parsedValue) ? 0 : parsedValue;
 
         try {
             if (editingCell.field === 'margin') {
@@ -257,20 +254,19 @@ export function ListingsManagementPage() {
                                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                                 <Input
                                     placeholder="Buscar productos..."
-                                    value={searchQuery}
-                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                    value={searchInput}
+                                    onChange={(e) => setSearchInput(e.target.value)}
                                     className="pl-10"
                                 />
                             </div>
 
                             <div className="flex flex-wrap gap-2">
-                                <Select value={sortBy} onValueChange={(v: typeof sortBy) => setSortBy(v)}>
+                                <Select value={sortBy} onValueChange={(v: 'alpha' | 'brand' | 'price') => setSortBy(v)}>
                                     <SelectTrigger className="w-[140px]">
                                         <SortAsc className="h-4 w-4 mr-2" />
                                         <SelectValue />
                                     </SelectTrigger>
                                     <SelectContent>
-                                        <SelectItem value="original">Original</SelectItem>
                                         <SelectItem value="alpha">Alfabético</SelectItem>
                                         <SelectItem value="brand">Por Marca</SelectItem>
                                         <SelectItem value="price">Por Precio</SelectItem>
@@ -339,21 +335,21 @@ export function ListingsManagementPage() {
                         <div className={cn(
                             "grid p-4 text-sm font-medium text-foreground",
                             view === 'business'
-                                ? "grid-cols-[60px_100px_1fr_100px_120px_100px_80px_100px]"
-                                : "grid-cols-[60px_100px_1fr_100px_100px]"
+                                ? "grid-cols-[50px_140px_1fr_140px_100px_90px_70px_90px]"
+                                : "grid-cols-[50px_140px_1fr_140px_90px]"
                         )}>
-                            <div>N°</div>
-                            <div>Código</div>
-                            <div>Descripción</div>
-                            <div>Marca</div>
+                            <div className="text-center">N°</div>
+                            <div className="text-center">Código</div>
+                            <div className="text-center">Descripción</div>
+                            <div className="text-center">Marca</div>
                             {view === 'business' && (
                                 <>
-                                    <div>Empresa</div>
-                                    <div className="text-right">USD Base</div>
-                                    <div className="text-right">% Margen</div>
+                                    <div className="text-center">Empresa</div>
+                                    <div className="text-center">USD</div>
+                                    <div className="text-center">%</div>
                                 </>
                             )}
-                            <div className="text-right">{view === 'business' ? 'USD Final' : 'USD'}</div>
+                            <div className="text-center">{view === 'business' ? 'USD Final' : 'USD'}</div>
                         </div>
                     </div>
 
@@ -371,7 +367,7 @@ export function ListingsManagementPage() {
                             }}
                         >
                             {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-                                const product = filteredProducts[virtualRow.index];
+                                const product = products[virtualRow.index];
                                 const rowIndex = virtualRow.index + 1;
 
                                 return (
@@ -380,8 +376,8 @@ export function ListingsManagementPage() {
                                         className={cn(
                                             "grid items-center p-4 border-b border-border hover:bg-secondary/50 absolute w-full",
                                             view === 'business'
-                                                ? "grid-cols-[60px_100px_1fr_100px_120px_100px_80px_100px]"
-                                                : "grid-cols-[60px_100px_1fr_100px_100px]"
+                                                ? "grid-cols-[50px_140px_1fr_140px_100px_90px_70px_90px]"
+                                                : "grid-cols-[50px_140px_1fr_140px_90px]"
                                         )}
                                         style={{
                                             height: `${virtualRow.size}px`,
@@ -389,21 +385,21 @@ export function ListingsManagementPage() {
                                             contain: 'layout style paint',
                                         }}
                                     >
-                                        <div className="text-muted-foreground">{rowIndex}</div>
-                                        <div className="font-mono text-foreground truncate">{product.clean_code}</div>
+                                        <div className="text-center text-muted-foreground">{rowIndex}</div>
+                                        <div className="text-center font-mono text-foreground truncate">{product.clean_code}</div>
                                         <div className="text-foreground truncate">{product.description}</div>
-                                        <div className="text-muted-foreground truncate">{product.brand}</div>
+                                        <div className="text-center text-muted-foreground truncate">{product.brand}</div>
                                         {view === 'business' && (
                                             <>
-                                                <div>
-                                                    <Badge variant="outline" className="text-xs">
+                                                <div className="truncate">
+                                                    <Badge variant="outline" className="text-xs truncate max-w-full">
                                                         {product.original_list_name || 'N/A'}
                                                     </Badge>
                                                 </div>
-                                                <div className={cn('text-right font-medium', getHeatmapClass(Number(product.price_usd) || 0))}>
+                                                <div className={cn('text-center font-medium', getHeatmapClass(Number(product.price_usd) || 0))}>
                                                     ${(Number(product.price_usd) || 0).toFixed(2)}
                                                 </div>
-                                                <div className="text-right">
+                                                <div className="text-center">
                                                     {editingCell?.id === product.id && editingCell?.field === 'margin' ? (
                                                         <Input
                                                             type="number"
@@ -412,7 +408,7 @@ export function ListingsManagementPage() {
                                                             onChange={(e) => setEditValue(e.target.value)}
                                                             onBlur={handleCellSave}
                                                             onKeyDown={handleKeyDown}
-                                                            className="h-8 w-16 text-right"
+                                                            className="h-9 w-16 text-center text-base font-medium bg-background border-2 border-accent focus:border-accent focus:ring-2 focus:ring-accent/30 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                                             autoFocus
                                                         />
                                                     ) : (
@@ -426,7 +422,7 @@ export function ListingsManagementPage() {
                                                 </div>
                                             </>
                                         )}
-                                        <div className="text-right">
+                                        <div className="text-center">
                                             {editingCell?.id === product.id && editingCell?.field === 'finalPrice' ? (
                                                 <Input
                                                     type="number"
@@ -435,19 +431,19 @@ export function ListingsManagementPage() {
                                                     onChange={(e) => setEditValue(e.target.value)}
                                                     onBlur={handleCellSave}
                                                     onKeyDown={handleKeyDown}
-                                                    className="h-8 w-20 text-right"
+                                                    className="h-9 w-20 text-right text-base font-medium bg-background border-2 border-success focus:border-success focus:ring-2 focus:ring-success/30 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                                     autoFocus
                                                 />
                                             ) : view === 'business' ? (
                                                 <button
-                                                    onClick={() => handleCellEdit(product.id, 'finalPrice', Number(product.final_price) || 0)}
+                                                    onClick={() => handleCellEdit(product.id, 'finalPrice', Number(product.final_price) || Number(product.price_usd) || 0)}
                                                     className="px-2 py-1 rounded hover:bg-secondary transition-colors font-semibold text-success cursor-pointer"
                                                 >
-                                                    ${(Number(product.final_price) || 0).toFixed(2)}
+                                                    ${(Number(product.final_price) || Number(product.price_usd) || 0).toFixed(2)}
                                                 </button>
                                             ) : (
                                                 <span className="font-semibold text-foreground">
-                                                    ${(Number(product.final_price) || 0).toFixed(2)}
+                                                    ${(Number(product.final_price) || Number(product.price_usd) || 0).toFixed(2)}
                                                 </span>
                                             )}
                                         </div>
@@ -458,11 +454,11 @@ export function ListingsManagementPage() {
                     </div>
 
                     {/* Product Count Footer */}
-                    {filteredProducts.length > 0 && (
+                    {products.length > 0 && (
                         <div className="p-4 border-t border-border text-sm text-muted-foreground flex items-center justify-between">
                             <span>
                                 {products.length} de {totalProducts} productos cargados
-                                {searchQuery && ` (${filteredProducts.length} filtrados)`}
+                                {debouncedSearch && ` (búsqueda: "${debouncedSearch}")`}
                             </span>
                             {isFetchingNextPage && (
                                 <span className="animate-pulse">Cargando más...</span>

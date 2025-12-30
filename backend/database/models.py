@@ -538,3 +538,62 @@ class CodeRegistry(Base):
         Index("idx_code_registry_code", "clean_code"),
         Index("idx_code_registry_brand", "canonical_brand"),
     )
+
+
+class BrandRegistry(Base):
+    """
+    Brand registry for automatic brand learning and manual brand list.
+    
+    Used for:
+    1. Detecting brands embedded in code cells
+    2. Auto-learning new brands from processed files
+    3. Maintaining a curated list of known brands
+    """
+    __tablename__ = "brand_registry"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    brand_name: Mapped[str] = mapped_column(String(200), unique=True, nullable=False, index=True)
+    normalized_name: Mapped[str] = mapped_column(String(200), nullable=False, index=True)  # Uppercase, no spaces
+    source: Mapped[str] = mapped_column(
+        String(20),
+        CheckConstraint("source IN ('manual', 'auto_learned')"),
+        default="auto_learned"
+    )
+    occurrence_count: Mapped[int] = mapped_column(Integer, default=1)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    first_seen: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+    last_seen: Mapped[datetime] = mapped_column(DateTime, default=func.now(), onupdate=func.now())
+    
+    # Indexes
+    __table_args__ = (
+        Index("idx_brand_registry_name", "brand_name"),
+        Index("idx_brand_registry_normalized", "normalized_name"),
+        Index("idx_brand_registry_active", "is_active"),
+    )
+
+
+class DistributorCodeRegistry(Base):
+    """
+    Registry for distributor-specific internal codes.
+    
+    Maps distributor codes (e.g., ALT01037) to product codes (e.g., B11-3701110BB).
+    Used for future correlation and distributor identification.
+    """
+    __tablename__ = "distributor_code_registry"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    distributor_code: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    product_code: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    distributor_name: Mapped[Optional[str]] = mapped_column(String(200))  # Inferred from list name
+    source_list_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("lists.id", ondelete="SET NULL"))
+    occurrence_count: Mapped[int] = mapped_column(Integer, default=1)
+    first_seen: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+    last_seen: Mapped[datetime] = mapped_column(DateTime, default=func.now(), onupdate=func.now())
+    
+    # Indexes
+    __table_args__ = (
+        Index("idx_distributor_code", "distributor_code"),
+        Index("idx_distributor_product_code", "product_code"),
+        UniqueConstraint("distributor_code", "product_code", name="uq_distributor_product"),
+    )
+

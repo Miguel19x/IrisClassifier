@@ -70,7 +70,8 @@ class PriceStatsResponse(BaseModel):
 @router.get("", response_model=MasterProductListResponse)
 async def get_master_products(
     view_mode: str = Query("enterprise", regex="^(enterprise|client)$"),
-    sort_by: str = Query("index", regex="^(index|alphabetical|brand|description|price)$"),
+    sort_by: str = Query("alphabetical", regex="^(index|alphabetical|brand|description|price)$"),
+    search: Optional[str] = Query(None, min_length=1, max_length=100),
     brand_filter: Optional[str] = None,
     review_status_filter: Optional[str] = Query(None, regex="^(pending|confirmed|rejected)$"),
     page: int = Query(1, ge=1),
@@ -81,16 +82,27 @@ async def get_master_products(
     """
     Get master products with filters and pagination.
     
-    Supports two view modes:
-    - enterprise: Shows all columns including margin %
-    - client: Shows final price instead of margin
+    Supports:
+    - search: Text search across code, description, and brand
+    - sort_by: Sort order (alphabetical default)
+    - brand_filter: Filter by brand name
+    - review_status_filter: Filter by review status
     """
     # Base query - filter by user's lists
     query = db.query(MasterProduct).join(
         PriceList, MasterProduct.source_list_id == PriceList.id
     ).filter(PriceList.user_id == user_id)
     
-    # Apply filters
+    # Apply search filter (searches code, description, and brand)
+    if search:
+        search_term = f"%{search.lower()}%"
+        query = query.filter(
+            (func.lower(MasterProduct.clean_code).like(search_term)) |
+            (func.lower(MasterProduct.description).like(search_term)) |
+            (func.lower(MasterProduct.brand).like(search_term))
+        )
+    
+    # Apply brand filter
     if brand_filter:
         query = query.filter(
             func.lower(MasterProduct.brand).like(f"%{brand_filter.lower()}%")
@@ -332,37 +344,45 @@ async def export_master_products(
     from fastapi.responses import StreamingResponse
     import io
     
-    # Build query with filters (same as get_master_products)
-    query = db.query(MasterProduct).join(
-        PriceList, MasterProduct.source_list_id == PriceList.id
-    ).filter(PriceList.user_id == user_id)
-    
-    if brand_filter:
-        query = query.filter(
-            func.lower(MasterProduct.brand).like(f"%{brand_filter.lower()}%")
-        )
-    
-    if review_status_filter:
-        query = query.filter(MasterProduct.review_status == review_status_filter)
-    
-    # Apply sorting (with secondary sort by index_number for consistency)
-    if sort_by == "index":
-        query = query.order_by(asc(MasterProduct.index_number))
-    elif sort_by == "alphabetical":
-        query = query.order_by(asc(MasterProduct.description), asc(MasterProduct.index_number))
-    elif sort_by == "brand":
-        query = query.order_by(asc(MasterProduct.brand), asc(MasterProduct.description), asc(MasterProduct.index_number))
-    elif sort_by == "description":
-        query = query.order_by(asc(MasterProduct.description), asc(MasterProduct.index_number))
-    elif sort_by == "price":
-        query = query.order_by(asc(MasterProduct.price_usd), asc(MasterProduct.index_number))
-    
-    products = query.all()
-    
-    if format == "excel":
-        return await _export_to_excel(products, view_mode)
-    else:
-        return await _export_to_pdf(products, view_mode)
+    try:
+        # Build query with filters (same as get_master_products)
+        query = db.query(MasterProduct).join(
+            PriceList, MasterProduct.source_list_id == PriceList.id
+        ).filter(PriceList.user_id == user_id)
+        
+        if brand_filter:
+            query = query.filter(
+                func.lower(MasterProduct.brand).like(f"%{brand_filter.lower()}%")
+            )
+        
+        if review_status_filter:
+            query = query.filter(MasterProduct.review_status == review_status_filter)
+        
+        # Apply sorting (with secondary sort by index_number for consistency)
+        if sort_by == "index":
+            query = query.order_by(asc(MasterProduct.index_number))
+        elif sort_by == "alphabetical":
+            query = query.order_by(asc(MasterProduct.description), asc(MasterProduct.index_number))
+        elif sort_by == "brand":
+            query = query.order_by(asc(MasterProduct.brand), asc(MasterProduct.description), asc(MasterProduct.index_number))
+        elif sort_by == "description":
+            query = query.order_by(asc(MasterProduct.description), asc(MasterProduct.index_number))
+        elif sort_by == "price":
+            query = query.order_by(asc(MasterProduct.price_usd), asc(MasterProduct.index_number))
+        
+        products = query.all()
+        logger.info(f"Exporting {len(products)} products as {format} in {view_mode} mode")
+        
+        if format == "excel":
+            return await _export_to_excel(products, view_mode)
+        else:
+            return await _export_to_pdf(products, view_mode)
+    except Exception as e:
+        import traceback
+        print(f"[EXPORT ERROR] {e}")
+        traceback.print_exc()
+        logger.error(f"Export failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Export failed: {str(e)}")
 
 
 async def _export_to_excel(products: List[MasterProduct], view_mode: str):
@@ -401,18 +421,18 @@ async def _export_to_excel(products: List[MasterProduct], view_mode: str):
     
     # Data rows
     for row_idx, product in enumerate(products, 2):
-        ws.cell(row=row_idx, column=1, value=product.index_number)
-        ws.cell(row=row_idx, column=2, value=product.clean_code)
-        ws.cell(row=row_idx, column=3, value=product.description)
+        ws.cell(row=row_idx, column=1, value=product.index_number or 0)
+        ws.cell(row=row_idx, column=2, value=product.clean_code or "")
+        ws.cell(row=row_idx, column=3, value=product.description or "")
         ws.cell(row=row_idx, column=4, value=product.brand or "")
         
         if view_mode == "enterprise":
-            ws.cell(row=row_idx, column=5, value=product.original_list_name)
-            ws.cell(row=row_idx, column=6, value=float(product.price_usd))
+            ws.cell(row=row_idx, column=5, value=product.original_list_name or "")
+            ws.cell(row=row_idx, column=6, value=float(product.price_usd or 0))
             margin = float(product.margin_percentage) if product.margin_percentage else 0
             ws.cell(row=row_idx, column=7, value=f"{margin:.1f}%")
         else:
-            final = float(product.final_price) if product.final_price else float(product.price_usd)
+            final = float(product.final_price) if product.final_price else float(product.price_usd or 0)
             ws.cell(row=row_idx, column=5, value=final)
     
     # Adjust column widths
@@ -476,20 +496,20 @@ async def _export_to_pdf(products: List[MasterProduct], view_mode: str):
         if view_mode == "enterprise":
             margin = float(product.margin_percentage) if product.margin_percentage else 0
             row = [
-                product.index_number,
-                product.clean_code[:20],
-                product.description[:40],
+                product.index_number or 0,
+                (product.clean_code or "")[:20],
+                (product.description or "")[:40],
                 (product.brand or "")[:15],
-                product.original_list_name[:15],
-                f"${float(product.price_usd):.2f}",
+                (product.original_list_name or "")[:15],
+                f"${float(product.price_usd or 0):.2f}",
                 f"{margin:.1f}%"
             ]
         else:
-            final = float(product.final_price) if product.final_price else float(product.price_usd)
+            final = float(product.final_price) if product.final_price else float(product.price_usd or 0)
             row = [
-                product.index_number,
-                product.clean_code[:20],
-                product.description[:50],
+                product.index_number or 0,
+                (product.clean_code or "")[:20],
+                (product.description or "")[:50],
                 (product.brand or "")[:15],
                 f"${final:.2f}"
             ]

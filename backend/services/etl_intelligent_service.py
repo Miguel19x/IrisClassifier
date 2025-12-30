@@ -13,8 +13,9 @@ from decimal import Decimal
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_
 
-from database.models import MasterProduct, CodeRegistry, PriceList
+from database.models import MasterProduct, CodeRegistry, PriceList, BrandRegistry
 from services.extractors.base import RawProduct
+from services.code_correlation_service import CodeCorrelationService
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,7 @@ class ETLIntelligentService:
     def __init__(self, db: Session):
         self.db = db
         self.confidence_threshold = 0.80
+        self.correlation_service = CodeCorrelationService(db)
         
     async def process_file(
         self,
@@ -96,6 +98,9 @@ class ETLIntelligentService:
         description = raw.name or "Unknown Product"
         columns = raw.columns or {}
         
+        # Get internal distributor code (if present)
+        internal_code = columns.get('internal_code', '').strip() if columns.get('internal_code') else None
+        
         # Use pre-extracted columns first (from ExcelParser), fallback to regex
         brand = columns.get('brand', '').strip() if columns.get('brand') else None
         if not brand:
@@ -104,6 +109,20 @@ class ETLIntelligentService:
         raw_code = columns.get('code', '').strip() if columns.get('code') else None
         if not raw_code:
             raw_code = self._extract_code(raw.raw_line, description, brand)
+        
+        # NEW: Try to separate brand from code if combined in same cell
+        if raw_code and not brand:
+            separated_code, detected_brand = self.correlation_service.separate_brand_from_code(raw_code)
+            if detected_brand:
+                raw_code = separated_code
+                brand = detected_brand
+                logger.debug(f"Separated brand '{brand}' from code '{raw_code}'")
+        
+        # Also check if brand is embedded in the description
+        if description and not brand:
+            _, detected_brand = self.correlation_service.separate_brand_from_code(description)
+            if detected_brand:
+                brand = detected_brand
         
         price = self._parse_price(raw.price_text)
         
@@ -135,13 +154,27 @@ class ETLIntelligentService:
             raw_data={
                 "raw_line": raw.raw_line,
                 "raw_code": raw_code,
+                "internal_code": internal_code,
                 "price_text": raw.price_text
             }
         )
         
-        # Update code registry if confirmed
+        # Update registries for future correlation
         if review_status == "confirmed":
             await self._update_code_registry(clean_code, description, brand)
+            
+            # Learn the brand automatically
+            if brand:
+                self.correlation_service.learn_brand(brand)
+            
+            # Register distributor code mapping
+            if internal_code and clean_code:
+                self.correlation_service.register_distributor_code(
+                    distributor_code=internal_code,
+                    product_code=clean_code,
+                    list_name=list_name,
+                    list_id=list_id
+                )
         
         return product
     
