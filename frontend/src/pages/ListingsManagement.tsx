@@ -48,6 +48,7 @@ export function ListingsManagementPage() {
     const [sortBy, setSortBy] = useState<'alpha' | 'brand' | 'price'>('alpha');
     const [editingCell, setEditingCell] = useState<{ id: number; field: 'margin' | 'finalPrice' } | null>(null);
     const [editValue, setEditValue] = useState('');
+    const [exportTitle, setExportTitle] = useState('Listado de Productos');
 
     // Debounce search to avoid too many API calls
     const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -60,7 +61,7 @@ export function ListingsManagementPage() {
         return () => clearTimeout(timer);
     }, [searchInput]);
 
-    // Map frontend sort values to backend values
+    // Convert sortBy to API param
     const getSortByParam = () => {
         switch (sortBy) {
             case 'alpha': return 'alphabetical';
@@ -85,9 +86,8 @@ export function ListingsManagementPage() {
     });
 
     const { data: statsData } = usePriceStats();
-    const viewModeForExport = view === 'business' ? 'enterprise' : 'client';
-    const exportPDFMutation = useExportPDF(viewModeForExport);
-    const exportExcelMutation = useExportExcel(viewModeForExport);
+    const exportPDFMutation = useExportPDF();
+    const exportExcelMutation = useExportExcel();
     const updateMarginMutation = useUpdateMargin();
     const updateFinalPriceMutation = useUpdateFinalPrice();
 
@@ -185,19 +185,21 @@ export function ListingsManagementPage() {
 
     const handleExportPDF = useCallback(async () => {
         try {
-            await exportPDFMutation.mutateAsync();
+            const viewMode = view === 'business' ? 'enterprise' : 'client';
+            await exportPDFMutation.mutateAsync({ viewMode, customTitle: exportTitle });
         } catch {
             alert('Error al exportar PDF');
         }
-    }, [exportPDFMutation]);
+    }, [exportPDFMutation, view, exportTitle]);
 
     const handleExportExcel = useCallback(async () => {
         try {
-            await exportExcelMutation.mutateAsync();
+            const viewMode = view === 'business' ? 'enterprise' : 'client';
+            await exportExcelMutation.mutateAsync({ viewMode, customTitle: exportTitle });
         } catch {
             alert('Error al exportar Excel');
         }
-    }, [exportExcelMutation]);
+    }, [exportExcelMutation, view, exportTitle]);
 
     if (isLoading) {
         return (
@@ -283,6 +285,13 @@ export function ListingsManagementPage() {
                                         Heatmap
                                     </Button>
                                 )}
+
+                                <Input
+                                    placeholder="Título del listado..."
+                                    value={exportTitle}
+                                    onChange={(e) => setExportTitle(e.target.value)}
+                                    className="w-48"
+                                />
 
                                 <Button
                                     variant="outline"

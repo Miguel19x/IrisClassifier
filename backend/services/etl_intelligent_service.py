@@ -33,6 +33,72 @@ class ETLIntelligentService:
         self.confidence_threshold = 0.80
         self.correlation_service = CodeCorrelationService(db)
         
+        # Patterns that indicate a header/subtitle row (not a product)
+        self.header_patterns = [
+            # Spanish column headers
+            r'c[oó]digo\s+descripci[oó]n\s+marca',
+            r'descripci[oó]n\s+marca\s+modelo',
+            r'marca\s+modelo\s+precio',
+            r'c[oó]digo\s+.*\s+precio\s+exist',
+            r'referencia\s+descripci[oó]n',
+            r'producto\s+descripci[oó]n\s+precio',
+            # English column headers
+            r'code\s+description\s+brand',
+            r'description\s+brand\s+price',
+            r'item\s+description\s+price',
+            # Generic patterns
+            r'^n[°o]?\s+c[oó]digo\s+desc',
+            r'^item\s+code\s+desc',
+            # Section headers / categories
+            r'^(categoria|category|section|seccion|grupo|group)\s*:',
+        ]
+    
+    def _is_header_row(self, raw_line: str, description: str) -> bool:
+        """
+        Check if a raw line is a header/subtitle row that should be skipped.
+        
+        Returns True if the line looks like a column header or section title.
+        """
+        import re
+        
+        if not raw_line:
+            return False
+        
+        line_lower = raw_line.lower().strip()
+        desc_lower = (description or "").lower().strip()
+        
+        # Check against header patterns
+        for pattern in self.header_patterns:
+            if re.search(pattern, line_lower, re.IGNORECASE):
+                logger.debug(f"Skipping header row: {raw_line[:100]}")
+                return True
+        
+        # Skip if description is a common column header name
+        skip_descriptions = [
+            'descripción', 'descripcion', 'description',
+            'marca', 'brand', 'modelo', 'model',
+            'código', 'codigo', 'code', 'referencia',
+            'precio', 'price', 'exist', 's/c', 'stock'
+        ]
+        if desc_lower in skip_descriptions:
+            logger.debug(f"Skipping header by description: {description}")
+            return True
+        
+        # Skip if the line has no price-like pattern and looks like a header
+        # Headers typically have multiple column labels separated by spaces
+        words = line_lower.split()
+        if len(words) >= 3:
+            header_words = ['código', 'codigo', 'descripción', 'descripcion', 
+                           'marca', 'modelo', 'precio', 'exist', 'stock', 's/c',
+                           'code', 'description', 'brand', 'model', 'price']
+            matches = sum(1 for w in words if w in header_words)
+            if matches >= 3:
+                logger.debug(f"Skipping header (multiple header words): {raw_line[:100]}")
+                return True
+        
+        return False
+        
+        
     async def process_file(
         self,
         raw_products: List[RawProduct],
@@ -62,14 +128,27 @@ class ETLIntelligentService:
         max_index = self.db.query(func.max(MasterProduct.index_number)).scalar() or 0
         
         transformed = []
-        for idx, raw in enumerate(raw_products, start=1):
+        skipped_headers = 0
+        product_idx = 0
+        
+        for raw in raw_products:
+            # Check if this is a header row - skip if so
+            description = raw.name or ""
+            if self._is_header_row(raw.raw_line, description):
+                skipped_headers += 1
+                continue
+            
+            product_idx += 1
             product = await self._transform_product(
                 raw,
-                index_number=max_index + idx,
+                index_number=max_index + product_idx,
                 list_id=list_id,
                 list_name=list_name
             )
             transformed.append(product)
+        
+        if skipped_headers > 0:
+            logger.info(f"Skipped {skipped_headers} header/subtitle rows")
         
         logger.info(
             "etl_processing_completed",

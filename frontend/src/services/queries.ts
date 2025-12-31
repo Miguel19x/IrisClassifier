@@ -489,16 +489,22 @@ export function useUpdateReviewStatus() {
 // EXPORT
 // ============================================
 
-export function useExportPDF(viewMode: 'enterprise' | 'client' = 'enterprise') {
+interface ExportParams {
+    viewMode: 'enterprise' | 'client';
+    customTitle?: string;
+}
+
+export function useExportPDF() {
     return useMutation({
-        mutationFn: async () => {
-            const response = await api.get(`/master-products/export?format=pdf&view_mode=${viewMode}`, {
+        mutationFn: async ({ viewMode, customTitle = 'Listado de Productos' }: ExportParams) => {
+            const title = encodeURIComponent(customTitle);
+            const response = await api.get(`/master-products/export?format=pdf&view_mode=${viewMode}&custom_title=${title}`, {
                 responseType: 'blob'
             });
             const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }));
             const link = document.createElement('a');
             link.href = url;
-            link.setAttribute('download', `listado_${Date.now()}.pdf`);
+            link.setAttribute('download', `${customTitle.replace(/\s+/g, '_')}_${Date.now()}.pdf`);
             document.body.appendChild(link);
             link.click();
             link.remove();
@@ -507,16 +513,17 @@ export function useExportPDF(viewMode: 'enterprise' | 'client' = 'enterprise') {
     });
 }
 
-export function useExportExcel(viewMode: 'enterprise' | 'client' = 'enterprise') {
+export function useExportExcel() {
     return useMutation({
-        mutationFn: async () => {
-            const response = await api.get(`/master-products/export?format=excel&view_mode=${viewMode}`, {
+        mutationFn: async ({ viewMode, customTitle = 'Listado de Productos' }: ExportParams) => {
+            const title = encodeURIComponent(customTitle);
+            const response = await api.get(`/master-products/export?format=excel&view_mode=${viewMode}&custom_title=${title}`, {
                 responseType: 'blob'
             });
             const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
             const link = document.createElement('a');
             link.href = url;
-            link.setAttribute('download', `listado_${Date.now()}.xlsx`);
+            link.setAttribute('download', `${customTitle.replace(/\s+/g, '_')}_${Date.now()}.xlsx`);
             document.body.appendChild(link);
             link.click();
             link.remove();

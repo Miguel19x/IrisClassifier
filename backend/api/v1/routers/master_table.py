@@ -326,7 +326,8 @@ async def update_review_status(
 async def export_master_products(
     format: str = Query("excel", regex="^(excel|pdf)$"),
     view_mode: str = Query("enterprise", regex="^(enterprise|client)$"),
-    sort_by: str = Query("index", regex="^(index|alphabetical|brand|description|price)$"),
+    sort_by: str = Query("alphabetical", regex="^(index|alphabetical|brand|description|price)$"),
+    custom_title: str = Query("Listado de Productos", description="Custom title for the export"),
     brand_filter: Optional[str] = None,
     review_status_filter: Optional[str] = Query(None, regex="^(pending|confirmed|rejected)$"),
     user_id: int = Depends(get_current_user_id),
@@ -374,9 +375,9 @@ async def export_master_products(
         logger.info(f"Exporting {len(products)} products as {format} in {view_mode} mode")
         
         if format == "excel":
-            return await _export_to_excel(products, view_mode)
+            return await _export_to_excel(products, view_mode, custom_title)
         else:
-            return await _export_to_pdf(products, view_mode)
+            return await _export_to_pdf(products, view_mode, custom_title)
     except Exception as e:
         import traceback
         print(f"[EXPORT ERROR] {e}")
@@ -385,7 +386,7 @@ async def export_master_products(
         raise HTTPException(status_code=500, detail=f"Export failed: {str(e)}")
 
 
-async def _export_to_excel(products: List[MasterProduct], view_mode: str):
+async def _export_to_excel(products: List[MasterProduct], view_mode: str, custom_title: str = "Listado de Productos"):
     """Generate Excel export."""
     from fastapi.responses import StreamingResponse
     import io
@@ -401,13 +402,13 @@ async def _export_to_excel(products: List[MasterProduct], view_mode: str):
     
     wb = openpyxl.Workbook()
     ws = wb.active
-    ws.title = "Master Table"
+    ws.title = custom_title[:31]  # Excel sheet name max 31 chars
     
-    # Headers based on view mode
+    # Headers based on view mode - always include final price
     if view_mode == "enterprise":
-        headers = ["N°", "CÓDIGO O REFERENCIA", "DESCRIPCIÓN", "MARCA", "LISTA ORIGINAL", "USD", "%"]
+        headers = ["N°", "CÓDIGO O REFERENCIA", "DESCRIPCIÓN", "MARCA", "LISTA ORIGINAL", "USD", "%", "USD FINAL"]
     else:
-        headers = ["N°", "CÓDIGO O REFERENCIA", "DESCRIPCIÓN", "MARCA", "USD PRECIO FINAL"]
+        headers = ["N°", "CÓDIGO O REFERENCIA", "DESCRIPCIÓN", "MARCA", "USD"]
     
     # Style header
     header_fill = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")
@@ -419,20 +420,24 @@ async def _export_to_excel(products: List[MasterProduct], view_mode: str):
         cell.font = header_font
         cell.alignment = Alignment(horizontal="center")
     
-    # Data rows
+    # Data rows - use row_idx - 1 for sequential numbering starting from 1
     for row_idx, product in enumerate(products, 2):
-        ws.cell(row=row_idx, column=1, value=product.index_number or 0)
+        ws.cell(row=row_idx, column=1, value=row_idx - 1)  # Sequential N° starting from 1
         ws.cell(row=row_idx, column=2, value=product.clean_code or "")
         ws.cell(row=row_idx, column=3, value=product.description or "")
         ws.cell(row=row_idx, column=4, value=product.brand or "")
         
+        # Calculate final price - use final_price if set, otherwise use price_usd
+        base_price = float(product.price_usd or 0)
+        final = float(product.final_price) if product.final_price else base_price
+        
         if view_mode == "enterprise":
             ws.cell(row=row_idx, column=5, value=product.original_list_name or "")
-            ws.cell(row=row_idx, column=6, value=float(product.price_usd or 0))
+            ws.cell(row=row_idx, column=6, value=base_price)
             margin = float(product.margin_percentage) if product.margin_percentage else 0
             ws.cell(row=row_idx, column=7, value=f"{margin:.1f}%")
+            ws.cell(row=row_idx, column=8, value=final)  # Always include final price
         else:
-            final = float(product.final_price) if product.final_price else float(product.price_usd or 0)
             ws.cell(row=row_idx, column=5, value=final)
     
     # Adjust column widths
@@ -454,7 +459,7 @@ async def _export_to_excel(products: List[MasterProduct], view_mode: str):
     )
 
 
-async def _export_to_pdf(products: List[MasterProduct], view_mode: str):
+async def _export_to_pdf(products: List[MasterProduct], view_mode: str, custom_title: str = "Listado de Productos"):
     """Generate PDF export."""
     from fastapi.responses import StreamingResponse
     import io
@@ -476,38 +481,41 @@ async def _export_to_pdf(products: List[MasterProduct], view_mode: str):
     
     styles = getSampleStyleSheet()
     
-    # Title
+    # Title - use custom title
     title = Paragraph(
-        f"<b>Master Table - Vista {'Empresarial' if view_mode == 'enterprise' else 'Cliente'}</b>",
+        f"<b>{custom_title}</b>",
         styles['Title']
     )
     elements.append(title)
     
-    # Headers
+    # Headers - always include final price in enterprise view
     if view_mode == "enterprise":
-        headers = ["N°", "CÓDIGO", "DESCRIPCIÓN", "MARCA", "LISTA", "USD", "%"]
+        headers = ["N°", "CÓDIGO", "DESCRIPCIÓN", "MARCA", "LISTA", "USD", "%", "USD FINAL"]
     else:
-        headers = ["N°", "CÓDIGO", "DESCRIPCIÓN", "MARCA", "USD FINAL"]
+        headers = ["N°", "CÓDIGO", "DESCRIPCIÓN", "MARCA", "USD"]
     
     data = [headers]
     
-    # Data rows
-    for product in products[:500]:  # Limit for PDF
+    # Data rows - no limit, use sequential numbering
+    for idx, product in enumerate(products, 1):
+        base_price = float(product.price_usd or 0)
+        final = float(product.final_price) if product.final_price else base_price
+        margin = float(product.margin_percentage) if product.margin_percentage else 0
+        
         if view_mode == "enterprise":
-            margin = float(product.margin_percentage) if product.margin_percentage else 0
             row = [
-                product.index_number or 0,
+                idx,  # Sequential N°
                 (product.clean_code or "")[:20],
                 (product.description or "")[:40],
                 (product.brand or "")[:15],
                 (product.original_list_name or "")[:15],
-                f"${float(product.price_usd or 0):.2f}",
-                f"{margin:.1f}%"
+                f"${base_price:.2f}",
+                f"{margin:.1f}%",
+                f"${final:.2f}"  # Always include final price
             ]
         else:
-            final = float(product.final_price) if product.final_price else float(product.price_usd or 0)
             row = [
-                product.index_number or 0,
+                idx,  # Sequential N°
                 (product.clean_code or "")[:20],
                 (product.description or "")[:50],
                 (product.brand or "")[:15],
