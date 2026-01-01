@@ -13,8 +13,9 @@ import {
     Briefcase,
     User,
     Thermometer,
+    Settings,
 } from 'lucide-react';
-import { useInfiniteMasterProducts, usePriceStats, useExportPDF, useExportExcel, useUpdateMargin, useUpdateFinalPrice } from '../services/queries';
+import { useInfiniteMasterProducts, usePriceStats, useExportAdvanced, useUpdateMargin, useUpdateFinalPrice } from '../services/queries';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
@@ -27,6 +28,7 @@ import {
     SelectValue,
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
+import { useExportConfig } from '@/contexts/ExportConfigContext';
 
 interface MasterProduct {
     id: number;
@@ -39,16 +41,43 @@ interface MasterProduct {
     final_price: number | null;
 }
 
-const ROW_HEIGHT = 56; // Fixed row height for virtualization
+const ROW_HEIGHT_DESKTOP = 56;
+const ROW_HEIGHT_MOBILE = 200; // Increased for card layout
 
-export function ListingsManagementPage() {
+// Hook to detect mobile viewport
+function useIsMobile() {
+    const [isMobile, setIsMobile] = useState(false);
+
+    useEffect(() => {
+        const checkMobile = () => setIsMobile(window.innerWidth < 768);
+        checkMobile();
+        window.addEventListener('resize', checkMobile);
+        return () => window.removeEventListener('resize', checkMobile);
+    }, []);
+
+    return isMobile;
+}
+
+type Page = 'lists' | 'products' | 'management' | 'export-settings';
+
+interface ListingsManagementPageProps {
+    onNavigate?: (page: Page) => void;
+}
+
+export function ListingsManagementPage({ onNavigate }: ListingsManagementPageProps) {
+    const isMobile = useIsMobile();
+    const rowHeight = isMobile ? ROW_HEIGHT_MOBILE : ROW_HEIGHT_DESKTOP;
+
     const [view, setView] = useState<'business' | 'client'>('business');
     const [heatmapEnabled, setHeatmapEnabled] = useState(false);
     const [searchInput, setSearchInput] = useState('');
     const [sortBy, setSortBy] = useState<'alpha' | 'brand' | 'price'>('alpha');
     const [editingCell, setEditingCell] = useState<{ id: number; field: 'margin' | 'finalPrice' } | null>(null);
     const [editValue, setEditValue] = useState('');
-    const [exportTitle, setExportTitle] = useState('Listado de Productos');
+    const [exportingFormat, setExportingFormat] = useState<'pdf' | 'excel' | null>(null);
+
+    // Export configuration from context
+    const { config: exportConfig } = useExportConfig();
 
     // Debounce search to avoid too many API calls
     const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -86,8 +115,6 @@ export function ListingsManagementPage() {
     });
 
     const { data: statsData } = usePriceStats();
-    const exportPDFMutation = useExportPDF();
-    const exportExcelMutation = useExportExcel();
     const updateMarginMutation = useUpdateMargin();
     const updateFinalPriceMutation = useUpdateFinalPrice();
 
@@ -117,9 +144,14 @@ export function ListingsManagementPage() {
     const rowVirtualizer = useVirtualizer({
         count: products.length,
         getScrollElement: () => tableContainerRef.current,
-        estimateSize: () => ROW_HEIGHT,
-        overscan: 10, // Render 10 extra rows for smooth scrolling
+        estimateSize: () => rowHeight,
+        overscan: 10,
     });
+
+    // Force recalculate virtualizer when mobile state or editing changes
+    useEffect(() => {
+        rowVirtualizer.measure();
+    }, [isMobile, editingCell, rowVirtualizer]);
 
     // Infinite scroll: fetch more when near the end
     useEffect(() => {
@@ -183,23 +215,95 @@ export function ListingsManagementPage() {
         }
     };
 
+    // Advanced export mutation
+    const exportAdvancedMutation = useExportAdvanced();
+
+
+    // Map frontend sort values to backend API values
+    const mapSortBy = (sort: 'alpha' | 'brand' | 'price'): 'alphabetical' | 'brand' | 'price' => {
+        if (sort === 'alpha') return 'alphabetical';
+        return sort;
+    };
+
     const handleExportPDF = useCallback(async () => {
         try {
+            setExportingFormat('pdf');
             const viewMode = view === 'business' ? 'enterprise' : 'client';
-            await exportPDFMutation.mutateAsync({ viewMode, customTitle: exportTitle });
+
+            // Use advanced export if template is configured
+            if (exportConfig.headerMode === 'template' && exportConfig.templateFile) {
+                await exportAdvancedMutation.mutateAsync({
+                    filename: exportConfig.filename,
+                    header_mode: 'template',
+                    template_file: {
+                        name: exportConfig.templateFile.name,
+                        type: exportConfig.templateFile.type,
+                        data: exportConfig.templateFile.data,
+                    },
+                    view_mode: viewMode,
+                    sort_by: mapSortBy(sortBy),
+                    format: 'pdf',
+                });
+            } else {
+                // Use advanced export with manual header - separate filename and header content
+                await exportAdvancedMutation.mutateAsync({
+                    filename: exportConfig.filename,
+                    header_mode: 'manual',
+                    manual_header: {
+                        content: exportConfig.manualHeader.content,
+                        alignment: exportConfig.manualHeader.alignment,
+                    },
+                    view_mode: viewMode,
+                    sort_by: mapSortBy(sortBy),
+                    format: 'pdf',
+                });
+            }
         } catch {
             alert('Error al exportar PDF');
+        } finally {
+            setExportingFormat(null);
         }
-    }, [exportPDFMutation, view, exportTitle]);
+    }, [exportAdvancedMutation, view, sortBy, exportConfig]);
 
     const handleExportExcel = useCallback(async () => {
         try {
+            setExportingFormat('excel');
             const viewMode = view === 'business' ? 'enterprise' : 'client';
-            await exportExcelMutation.mutateAsync({ viewMode, customTitle: exportTitle });
+
+            // Use advanced export if template is configured
+            if (exportConfig.headerMode === 'template' && exportConfig.templateFile) {
+                await exportAdvancedMutation.mutateAsync({
+                    filename: exportConfig.filename,
+                    header_mode: 'template',
+                    template_file: {
+                        name: exportConfig.templateFile.name,
+                        type: exportConfig.templateFile.type,
+                        data: exportConfig.templateFile.data,
+                    },
+                    view_mode: viewMode,
+                    sort_by: mapSortBy(sortBy),
+                    format: 'excel',
+                });
+            } else {
+                // Use advanced export with manual header - separate filename and header content
+                await exportAdvancedMutation.mutateAsync({
+                    filename: exportConfig.filename,
+                    header_mode: 'manual',
+                    manual_header: {
+                        content: exportConfig.manualHeader.content,
+                        alignment: exportConfig.manualHeader.alignment,
+                    },
+                    view_mode: viewMode,
+                    sort_by: mapSortBy(sortBy),
+                    format: 'excel',
+                });
+            }
         } catch {
             alert('Error al exportar Excel');
+        } finally {
+            setExportingFormat(null);
         }
-    }, [exportExcelMutation, view, exportTitle]);
+    }, [exportAdvancedMutation, view, sortBy, exportConfig]);
 
     if (isLoading) {
         return (
@@ -226,7 +330,7 @@ export function ListingsManagementPage() {
                     </h1>
 
                     {/* View Toggle */}
-                    <div className="flex items-center gap-2 p-1 rounded-lg bg-secondary">
+                    <div className="flex items-center gap-1 p-1 rounded-lg bg-secondary w-fit">
                         <Button
                             variant={view === 'business' ? 'default' : 'ghost'}
                             size="sm"
@@ -248,11 +352,12 @@ export function ListingsManagementPage() {
                     </div>
                 </div>
 
-                {/* Filters and Actions */}
+                {/* Filters and Actions - Single row on desktop */}
                 <Card variant="glass" className="mb-6">
                     <CardContent className="p-4">
-                        <div className="flex flex-col lg:flex-row gap-4">
-                            <div className="flex-1 relative">
+                        <div className="flex flex-col lg:flex-row lg:items-center gap-3">
+                            {/* Search Bar */}
+                            <div className="relative flex-1 lg:max-w-sm">
                                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                                 <Input
                                     placeholder="Buscar productos..."
@@ -262,90 +367,105 @@ export function ListingsManagementPage() {
                                 />
                             </div>
 
-                            <div className="flex flex-wrap gap-2">
-                                <Select value={sortBy} onValueChange={(v: 'alpha' | 'brand' | 'price') => setSortBy(v)}>
-                                    <SelectTrigger className="w-[140px]">
-                                        <SortAsc className="h-4 w-4 mr-2" />
-                                        <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="alpha">Alfabético</SelectItem>
-                                        <SelectItem value="brand">Por Marca</SelectItem>
-                                        <SelectItem value="price">Por Precio</SelectItem>
-                                    </SelectContent>
-                                </Select>
+                            {/* Sort Dropdown */}
+                            <Select value={sortBy} onValueChange={(v: 'alpha' | 'brand' | 'price') => setSortBy(v)}>
+                                <SelectTrigger className="w-full lg:w-[140px]">
+                                    <SortAsc className="h-4 w-4 mr-2" />
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="alpha">Alfabético</SelectItem>
+                                    <SelectItem value="brand">Por Marca</SelectItem>
+                                    <SelectItem value="price">Por Precio</SelectItem>
+                                </SelectContent>
+                            </Select>
 
-                                {view === 'business' && (
+                            {/* Heatmap Button */}
+                            {view === 'business' && (
+                                <Button
+                                    variant={heatmapEnabled ? 'default' : 'outline'}
+                                    onClick={() => setHeatmapEnabled(!heatmapEnabled)}
+                                    className="gap-2"
+                                >
+                                    <Thermometer className="h-4 w-4" />
+                                    <span className="hidden sm:inline">Heatmap</span>
+                                </Button>
+                            )}
+
+                            {/* Spacer to push export to the right on desktop */}
+                            <div className="hidden lg:block lg:flex-1" />
+
+                            {/* Export Section */}
+                            <div className="flex flex-col sm:flex-row gap-2">
+                                <Button
+                                    variant="premium"
+                                    className="gap-2"
+                                    onClick={() => onNavigate?.('export-settings')}
+                                >
+                                    <Settings className="h-4 w-4" />
+                                    <span className="hidden sm:inline">Opciones de Exportación</span>
+                                    <span className="sm:hidden">Exportar</span>
+                                    {exportConfig.templateFile && (
+                                        <span className="ml-1 px-1.5 py-0.5 text-[10px] rounded bg-success/20 text-success">
+                                            Plantilla
+                                        </span>
+                                    )}
+                                </Button>
+                                <div className="flex gap-2">
                                     <Button
-                                        variant={heatmapEnabled ? 'default' : 'outline'}
-                                        onClick={() => setHeatmapEnabled(!heatmapEnabled)}
-                                        className="gap-2"
+                                        variant="outline"
+                                        className="gap-2 flex-1 sm:flex-none"
+                                        onClick={handleExportPDF}
+                                        disabled={exportingFormat !== null}
                                     >
-                                        <Thermometer className="h-4 w-4" />
-                                        Heatmap
+                                        <FileDown className="h-4 w-4" />
+                                        {exportingFormat === 'pdf' ? 'Exportando...' : 'PDF'}
                                     </Button>
-                                )}
-
-                                <Input
-                                    placeholder="Título del listado..."
-                                    value={exportTitle}
-                                    onChange={(e) => setExportTitle(e.target.value)}
-                                    className="w-48"
-                                />
-
-                                <Button
-                                    variant="outline"
-                                    className="gap-2"
-                                    onClick={handleExportPDF}
-                                    disabled={exportPDFMutation.isPending}
-                                >
-                                    <FileDown className="h-4 w-4" />
-                                    {exportPDFMutation.isPending ? 'Exportando...' : 'PDF'}
-                                </Button>
-                                <Button
-                                    variant="outline"
-                                    className="gap-2"
-                                    onClick={handleExportExcel}
-                                    disabled={exportExcelMutation.isPending}
-                                >
-                                    <FileSpreadsheet className="h-4 w-4" />
-                                    {exportExcelMutation.isPending ? 'Exportando...' : 'Excel'}
-                                </Button>
-                            </div>
-                        </div>
-
-                        {/* Heatmap Legend */}
-                        {view === 'business' && heatmapEnabled && (
-                            <div className="mt-4 pt-4 border-t border-border animate-fade-in">
-                                <div className="flex flex-wrap items-center gap-3 sm:gap-6 text-sm">
-                                    <span className="text-muted-foreground w-full sm:w-auto">Leyenda:</span>
-                                    <div className="flex items-center gap-2">
-                                        <div className="w-4 h-4 rounded bg-success/20" />
-                                        <span className="text-success text-xs sm:text-sm">25% más barato</span>
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                        <div className="w-4 h-4 rounded bg-warning/20" />
-                                        <span className="text-warning text-xs sm:text-sm">Precio medio</span>
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                        <div className="w-4 h-4 rounded bg-destructive/20" />
-                                        <span className="text-destructive text-xs sm:text-sm">25% más caro</span>
-                                    </div>
+                                    <Button
+                                        variant="outline"
+                                        className="gap-2 flex-1 sm:flex-none"
+                                        onClick={handleExportExcel}
+                                        disabled={exportingFormat !== null}
+                                    >
+                                        <FileSpreadsheet className="h-4 w-4" />
+                                        {exportingFormat === 'excel' ? 'Exportando...' : 'Excel'}
+                                    </Button>
                                 </div>
                             </div>
-                        )}
+                        </div>
                     </CardContent>
                 </Card>
 
-                {/* Virtualized Master Table */}
+                {/* Heatmap Legend */}
+                {view === 'business' && heatmapEnabled && (
+                    <div className="mt-4 pt-4 border-t border-border animate-fade-in">
+                        <div className="flex flex-wrap items-center gap-3 sm:gap-6 text-sm">
+                            <span className="text-muted-foreground w-full sm:w-auto">Leyenda:</span>
+                            <div className="flex items-center gap-2">
+                                <div className="w-4 h-4 rounded bg-success/20" />
+                                <span className="text-success text-xs sm:text-sm">25% más barato</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <div className="w-4 h-4 rounded bg-warning/20" />
+                                <span className="text-warning text-xs sm:text-sm">Precio medio</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <div className="w-4 h-4 rounded bg-destructive/20" />
+                                <span className="text-destructive text-xs sm:text-sm">25% más caro</span>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Responsive Master Table */}
                 <Card variant="glass" className="overflow-hidden">
-                    {/* Table Header */}
-                    <div className="bg-secondary">
+                    {/* Table Header - Hidden on mobile */}
+                    <div className="hidden md:block bg-secondary overflow-x-auto">
                         <div className={cn(
-                            "grid p-4 text-sm font-medium text-foreground",
+                            "grid p-4 text-sm font-medium text-foreground min-w-[600px]",
                             view === 'business'
-                                ? "grid-cols-[50px_140px_1fr_140px_100px_90px_70px_90px]"
-                                : "grid-cols-[50px_140px_1fr_140px_90px]"
+                                ? "grid-cols-[40px_100px_1fr_100px_80px_70px_60px_70px]"
+                                : "grid-cols-[40px_100px_1fr_100px_80px]"
                         )}>
                             <div className="text-center">N°</div>
                             <div className="text-center">Código</div>
@@ -358,7 +478,7 @@ export function ListingsManagementPage() {
                                     <div className="text-center">%</div>
                                 </>
                             )}
-                            <div className="text-center">{view === 'business' ? 'USD Final' : 'USD'}</div>
+                            <div className="text-center">{view === 'business' ? 'Final' : 'USD'}</div>
                         </div>
                     </div>
 
@@ -382,103 +502,216 @@ export function ListingsManagementPage() {
                                 return (
                                     <div
                                         key={product.id}
-                                        className={cn(
-                                            "grid items-center p-4 border-b border-border hover:bg-secondary/50 absolute w-full",
-                                            view === 'business'
-                                                ? "grid-cols-[50px_140px_1fr_140px_100px_90px_70px_90px]"
-                                                : "grid-cols-[50px_140px_1fr_140px_90px]"
-                                        )}
+                                        className="absolute w-full"
                                         style={{
                                             height: `${virtualRow.size}px`,
                                             transform: `translateY(${virtualRow.start}px)`,
                                             contain: 'layout style paint',
                                         }}
                                     >
-                                        <div className="text-center text-muted-foreground">{rowIndex}</div>
-                                        <div className="text-center font-mono text-foreground truncate">{product.clean_code}</div>
-                                        <div className="text-foreground truncate">{product.description}</div>
-                                        <div className="text-center text-muted-foreground truncate">{product.brand}</div>
-                                        {view === 'business' && (
-                                            <>
-                                                <div className="truncate">
-                                                    <Badge variant="outline" className="text-xs truncate max-w-full">
+                                        {/* Mobile Card Layout */}
+                                        <div className="md:hidden p-3 border-b border-border">
+                                            <div className="bg-secondary/30 rounded-lg p-4 space-y-1">
+                                                {/* Header Row */}
+                                                <div className="flex items-start justify-between gap-2">
+                                                    <div className="flex-1 min-w-0">
+                                                        <p className="font-semibold text-foreground text-sm leading-tight">
+                                                            {product.description || 'Sin descripción'}
+                                                        </p>
+                                                        {product.clean_code && (
+                                                            <p className="text-xs text-muted-foreground font-mono mt-1">
+                                                                Código: {product.clean_code}
+                                                            </p>
+                                                        )}
+                                                    </div>
+                                                    <span className="text-xs text-muted-foreground bg-secondary px-2 py-1 rounded">
+                                                        #{rowIndex}
+                                                    </span>
+                                                </div>
+
+                                                {/* Info Row */}
+                                                <div className="flex flex-wrap items-center gap-2 text-xs">
+                                                    {product.brand && (
+                                                        <span className="bg-primary/10 text-primary px-2 py-0.5 rounded">
+                                                            {product.brand}
+                                                        </span>
+                                                    )}
+                                                    <Badge variant="outline" className="text-[10px]">
                                                         {product.original_list_name || 'N/A'}
                                                     </Badge>
                                                 </div>
-                                                <div className={cn('text-center font-medium', getHeatmapClass(Number(product.price_usd) || 0))}>
-                                                    ${(Number(product.price_usd) || 0).toFixed(2)}
-                                                </div>
-                                                <div className="text-center">
-                                                    {editingCell?.id === product.id && editingCell?.field === 'margin' ? (
-                                                        <Input
-                                                            type="number"
-                                                            step="0.1"
-                                                            value={editValue}
-                                                            onChange={(e) => setEditValue(e.target.value)}
-                                                            onBlur={handleCellSave}
-                                                            onKeyDown={handleKeyDown}
-                                                            className="h-9 w-16 text-center text-base font-medium bg-background border-2 border-accent focus:border-accent focus:ring-2 focus:ring-accent/30 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                                                            autoFocus
-                                                        />
-                                                    ) : (
-                                                        <button
-                                                            onClick={() => handleCellEdit(product.id, 'margin', Number(product.margin_percentage) || 0)}
-                                                            className="px-2 py-1 rounded hover:bg-secondary transition-colors text-accent cursor-pointer"
-                                                        >
-                                                            {(Number(product.margin_percentage) || 0).toFixed(1)}%
-                                                        </button>
+
+                                                {/* Price Row - Editable in both views */}
+                                                <div className="pt-2 border-t border-border/50 space-y-2">
+                                                    {view === 'business' && (
+                                                        <div className="flex items-center justify-between text-xs">
+                                                            <span className="text-muted-foreground">Base USD:</span>
+                                                            <span className={cn("font-medium", getHeatmapClass(Number(product.price_usd) || 0))}>
+                                                                ${(Number(product.price_usd) || 0).toFixed(2)}
+                                                            </span>
+                                                        </div>
                                                     )}
+
+                                                    {/* Margin - Only in business view */}
+                                                    {view === 'business' && (
+                                                        <div className="flex items-center justify-between text-xs">
+                                                            <span className="text-muted-foreground">Margen:</span>
+                                                            {editingCell?.id === product.id && editingCell?.field === 'margin' ? (
+                                                                <div className="flex items-center gap-1">
+                                                                    <Input
+                                                                        type="number"
+                                                                        value={editValue}
+                                                                        onChange={(e) => setEditValue(e.target.value)}
+                                                                        onKeyDown={handleKeyDown}
+                                                                        className="w-16 h-6 text-xs px-1"
+                                                                        autoFocus
+                                                                    />
+                                                                    <span className="text-muted-foreground">%</span>
+                                                                    <Button size="sm" onClick={handleCellSave} className="h-6 px-2 text-xs">
+                                                                        ✓
+                                                                    </Button>
+                                                                </div>
+                                                            ) : (
+                                                                <button
+                                                                    onClick={() => handleCellEdit(product.id, 'margin', Number(product.margin_percentage) || 0)}
+                                                                    className="text-accent font-medium underline"
+                                                                >
+                                                                    {(Number(product.margin_percentage) || 0).toFixed(1)}%
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                    )}
+
+                                                    {/* Final Price - Editable in both views */}
+                                                    <div className="flex items-center justify-between">
+                                                        <span className="text-xs text-muted-foreground">Precio:</span>
+                                                        {editingCell?.id === product.id && editingCell?.field === 'finalPrice' ? (
+                                                            <div className="flex items-center gap-1">
+                                                                <span className="text-muted-foreground">$</span>
+                                                                <Input
+                                                                    type="number"
+                                                                    value={editValue}
+                                                                    onChange={(e) => setEditValue(e.target.value)}
+                                                                    onKeyDown={handleKeyDown}
+                                                                    className="w-20 h-7 text-sm px-1"
+                                                                    autoFocus
+                                                                />
+                                                                <Button size="sm" onClick={handleCellSave} className="h-7 px-2 text-xs">
+                                                                    ✓
+                                                                </Button>
+                                                            </div>
+                                                        ) : (
+                                                            <button
+                                                                onClick={() => handleCellEdit(product.id, 'finalPrice', Number(product.final_price) || Number(product.price_usd) || 0)}
+                                                                className={cn(
+                                                                    "text-lg font-bold",
+                                                                    view === 'business' ? "text-success" : "text-foreground"
+                                                                )}
+                                                            >
+                                                                ${(Number(product.final_price) || Number(product.price_usd) || 0).toFixed(2)}
+                                                            </button>
+                                                        )}
+                                                    </div>
                                                 </div>
-                                            </>
-                                        )}
-                                        <div className="text-center">
-                                            {editingCell?.id === product.id && editingCell?.field === 'finalPrice' ? (
-                                                <Input
-                                                    type="number"
-                                                    step="0.01"
-                                                    value={editValue}
-                                                    onChange={(e) => setEditValue(e.target.value)}
-                                                    onBlur={handleCellSave}
-                                                    onKeyDown={handleKeyDown}
-                                                    className="h-9 w-20 text-right text-base font-medium bg-background border-2 border-success focus:border-success focus:ring-2 focus:ring-success/30 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                                                    autoFocus
-                                                />
-                                            ) : view === 'business' ? (
-                                                <button
-                                                    onClick={() => handleCellEdit(product.id, 'finalPrice', Number(product.final_price) || Number(product.price_usd) || 0)}
-                                                    className="px-2 py-1 rounded hover:bg-secondary transition-colors font-semibold text-success cursor-pointer"
-                                                >
-                                                    ${(Number(product.final_price) || Number(product.price_usd) || 0).toFixed(2)}
-                                                </button>
-                                            ) : (
-                                                <span className="font-semibold text-foreground">
-                                                    ${(Number(product.final_price) || Number(product.price_usd) || 0).toFixed(2)}
-                                                </span>
+                                            </div>
+                                        </div>
+
+                                        {/* Desktop Row Layout */}
+                                        <div
+                                            className={cn(
+                                                "hidden md:grid items-center p-4 border-b border-border hover:bg-secondary/50 h-full min-w-[600px]",
+                                                view === 'business'
+                                                    ? "grid-cols-[40px_100px_1fr_100px_80px_70px_60px_70px]"
+                                                    : "grid-cols-[40px_100px_1fr_100px_80px]"
                                             )}
+                                        >
+                                            <div className="text-center text-muted-foreground">{rowIndex}</div>
+                                            <div className="text-center font-mono text-foreground truncate">{product.clean_code}</div>
+                                            <div className="text-foreground truncate">{product.description}</div>
+                                            <div className="text-center text-muted-foreground truncate">{product.brand}</div>
+                                            {view === 'business' && (
+                                                <>
+                                                    <div className="truncate">
+                                                        <Badge variant="outline" className="text-xs truncate max-w-full">
+                                                            {product.original_list_name || 'N/A'}
+                                                        </Badge>
+                                                    </div>
+                                                    <div className={cn('text-center font-medium', getHeatmapClass(Number(product.price_usd) || 0))}>
+                                                        ${(Number(product.price_usd) || 0).toFixed(2)}
+                                                    </div>
+                                                    <div className="text-center">
+                                                        {editingCell?.id === product.id && editingCell?.field === 'margin' ? (
+                                                            <Input
+                                                                type="number"
+                                                                step="0.1"
+                                                                value={editValue}
+                                                                onChange={(e) => setEditValue(e.target.value)}
+                                                                onBlur={handleCellSave}
+                                                                onKeyDown={handleKeyDown}
+                                                                className="h-9 w-16 text-center text-base font-medium bg-background border-2 border-accent focus:border-accent focus:ring-2 focus:ring-accent/30 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                                                autoFocus
+                                                            />
+                                                        ) : (
+                                                            <button
+                                                                onClick={() => handleCellEdit(product.id, 'margin', Number(product.margin_percentage) || 0)}
+                                                                className="px-2 py-1 rounded hover:bg-secondary transition-colors text-accent cursor-pointer"
+                                                            >
+                                                                {(Number(product.margin_percentage) || 0).toFixed(1)}%
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                </>
+                                            )}
+                                            <div className="text-center">
+                                                {editingCell?.id === product.id && editingCell?.field === 'finalPrice' ? (
+                                                    <Input
+                                                        type="number"
+                                                        step="0.01"
+                                                        value={editValue}
+                                                        onChange={(e) => setEditValue(e.target.value)}
+                                                        onBlur={handleCellSave}
+                                                        onKeyDown={handleKeyDown}
+                                                        className="h-9 w-20 text-right text-base font-medium bg-background border-2 border-success focus:border-success focus:ring-2 focus:ring-success/30 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                                        autoFocus
+                                                    />
+                                                ) : (
+                                                    <button
+                                                        onClick={() => handleCellEdit(product.id, 'finalPrice', Number(product.final_price) || Number(product.price_usd) || 0)}
+                                                        className={cn(
+                                                            "px-2 py-1 rounded hover:bg-secondary transition-colors font-semibold cursor-pointer",
+                                                            view === 'business' ? "text-success" : "text-foreground"
+                                                        )}
+                                                    >
+                                                        ${(Number(product.final_price) || Number(product.price_usd) || 0).toFixed(2)}
+                                                    </button>
+                                                )}
+                                            </div>
                                         </div>
                                     </div>
                                 );
                             })}
                         </div>
-                    </div>
+                    </div >
 
                     {/* Product Count Footer */}
-                    {products.length > 0 && (
-                        <div className="p-4 border-t border-border text-sm text-muted-foreground flex items-center justify-between">
-                            <span>
-                                {products.length} de {totalProducts} productos cargados
-                                {debouncedSearch && ` (búsqueda: "${debouncedSearch}")`}
-                            </span>
-                            {isFetchingNextPage && (
-                                <span className="animate-pulse">Cargando más...</span>
-                            )}
-                            {!hasNextPage && products.length > 0 && (
-                                <span className="text-success">Todos los productos cargados</span>
-                            )}
-                        </div>
-                    )}
-                </Card>
-            </div>
-        </div>
+                    {
+                        products.length > 0 && (
+                            <div className="p-4 border-t border-border text-sm text-muted-foreground flex items-center justify-between">
+                                <span>
+                                    {products.length} de {totalProducts} productos cargados
+                                    {debouncedSearch && ` (búsqueda: "${debouncedSearch}")`}
+                                </span>
+                                {isFetchingNextPage && (
+                                    <span className="animate-pulse">Cargando más...</span>
+                                )}
+                                {!hasNextPage && products.length > 0 && (
+                                    <span className="text-success">Todos los productos cargados</span>
+                                )}
+                            </div>
+                        )
+                    }
+                </Card >
+            </div >
+        </div >
     );
 }

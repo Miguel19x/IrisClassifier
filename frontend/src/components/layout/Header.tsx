@@ -27,16 +27,16 @@ export function Header({ userEmail = "usuario@ejemplo.com", currentPage, onNavig
             <div className="container mx-auto px-4">
                 <div className="flex h-16 items-center justify-between">
                     {/* Logo */}
-                    <button onClick={() => onNavigate('lists')} className="flex items-center gap-3 group">
+                    <button onClick={() => onNavigate('lists')} className="flex items-center gap-2 sm:gap-3 group">
                         <div className="relative">
                             <div className="absolute inset-0 bg-gradient-to-r from-primary to-accent blur-lg opacity-50 group-hover:opacity-75 transition-opacity" />
-                            <div className="relative h-9 w-9 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center">
-                                <span className="text-primary-foreground font-display font-bold text-lg">IC</span>
+                            <div className="relative h-8 w-8 sm:h-9 sm:w-9 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center">
+                                <span className="text-primary-foreground font-display font-bold text-base sm:text-lg">IC</span>
                             </div>
                         </div>
-                        <div className="hidden sm:block">
-                            <h1 className="font-display font-bold text-lg text-foreground text-left">IrisClassifier</h1>
-                            <p className="text-xs text-muted-foreground">Clasificación de Productos con IA</p>
+                        <div>
+                            <h1 className="font-display font-bold text-base sm:text-lg text-foreground text-left">IrisClassifier</h1>
+                            <p className="text-[10px] sm:text-xs text-muted-foreground hidden sm:block">Clasificación de Productos con IA</p>
                         </div>
                     </button>
 

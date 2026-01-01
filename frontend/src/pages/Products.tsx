@@ -50,9 +50,27 @@ interface ProductsPageProps {
     selectedListId: number | null;
 }
 
-const ROW_HEIGHT = 56; // Fixed row height for virtualization
+const ROW_HEIGHT_DESKTOP = 56;
+const ROW_HEIGHT_MOBILE = 200;
+const ROW_HEIGHT_MOBILE_EDITING = 350; // Taller to show complete edit form
+
+// Hook to detect mobile viewport
+function useIsMobile() {
+    const [isMobile, setIsMobile] = useState(false);
+
+    useEffect(() => {
+        const checkMobile = () => setIsMobile(window.innerWidth < 768);
+        checkMobile();
+        window.addEventListener('resize', checkMobile);
+        return () => window.removeEventListener('resize', checkMobile);
+    }, []);
+
+    return isMobile;
+}
 
 export function ProductsPage({ selectedListId: initialListId }: ProductsPageProps) {
+    const isMobile = useIsMobile();
+
     const { data: listsData, isLoading: listsLoading } = useLists();
     const [internalListId, setInternalListId] = useState<number | null>(initialListId);
 
@@ -118,13 +136,27 @@ export function ProductsPage({ selectedListId: initialListId }: ProductsPageProp
         }
     };
 
-    // Virtualizer for table rows
+    // Virtualizer for table rows - dynamic height based on editing state
+    const getRowHeight = useCallback((index: number) => {
+        if (!isMobile) return ROW_HEIGHT_DESKTOP;
+        const product = products[index];
+        if (product && editingId === product.id) {
+            return ROW_HEIGHT_MOBILE_EDITING;
+        }
+        return ROW_HEIGHT_MOBILE;
+    }, [isMobile, editingId, products]);
+
     const rowVirtualizer = useVirtualizer({
         count: products.length,
         getScrollElement: () => tableContainerRef.current,
-        estimateSize: () => ROW_HEIGHT,
-        overscan: 10, // Render 10 extra rows for smooth scrolling
+        estimateSize: (index) => getRowHeight(index),
+        overscan: 10,
     });
+
+    // Force recalculate virtualizer when mobile state or editing changes
+    useEffect(() => {
+        rowVirtualizer.measure();
+    }, [isMobile, editingId, rowVirtualizer]);
 
     // Infinite scroll: fetch more when near the end
     useEffect(() => {
@@ -288,53 +320,53 @@ export function ProductsPage({ selectedListId: initialListId }: ProductsPageProp
                         {/* Filters */}
                         <Card variant="glass" className="mb-6">
                             <CardContent className="p-4">
-                                <div className="flex flex-col md:flex-row gap-4">
-                                    <div className="flex-1 relative">
-                                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                        <Input
-                                            placeholder="Buscar por código, descripción o marca..."
-                                            value={searchInput}
-                                            onChange={(e) => setSearchInput(e.target.value)}
-                                            className="pl-10"
-                                        />
-                                    </div>
-                                    <div className="flex gap-2">
-                                        <Select value={sortBy} onValueChange={(v: typeof sortBy) => setSortBy(v)}>
-                                            <SelectTrigger className="w-[140px]">
-                                                <SortAsc className="h-4 w-4 mr-2" />
-                                                <SelectValue />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                <SelectItem value="index">Original</SelectItem>
-                                                <SelectItem value="alphabetical">Alfabético</SelectItem>
-                                                <SelectItem value="brand">Por Marca</SelectItem>
-                                                <SelectItem value="price">Por Precio</SelectItem>
-                                            </SelectContent>
-                                        </Select>
-                                        <Select
-                                            value={statusFilter}
-                                            onValueChange={(v: typeof statusFilter) => setStatusFilter(v)}
-                                        >
-                                            <SelectTrigger className="w-[140px]">
-                                                <Filter className="h-4 w-4 mr-2" />
-                                                <SelectValue />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                <SelectItem value="all">Todos</SelectItem>
-                                                <SelectItem value="pending">Pendientes</SelectItem>
-                                                <SelectItem value="verified">Verificados</SelectItem>
-                                            </SelectContent>
-                                        </Select>
-                                    </div>
+                                {/* Search Bar */}
+                                <div className="relative mb-4">
+                                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                    <Input
+                                        placeholder="Buscar por código, descripción o marca..."
+                                        value={searchInput}
+                                        onChange={(e) => setSearchInput(e.target.value)}
+                                        className="pl-10"
+                                    />
+                                </div>
+                                {/* Sort and Filter */}
+                                <div className="flex flex-col sm:flex-row gap-2">
+                                    <Select value={sortBy} onValueChange={(v: typeof sortBy) => setSortBy(v)}>
+                                        <SelectTrigger className="w-full sm:w-[140px]">
+                                            <SortAsc className="h-4 w-4 mr-2" />
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="index">Original</SelectItem>
+                                            <SelectItem value="alphabetical">Alfabético</SelectItem>
+                                            <SelectItem value="brand">Por Marca</SelectItem>
+                                            <SelectItem value="price">Por Precio</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                    <Select
+                                        value={statusFilter}
+                                        onValueChange={(v: typeof statusFilter) => setStatusFilter(v)}
+                                    >
+                                        <SelectTrigger className="w-full sm:w-[140px]">
+                                            <Filter className="h-4 w-4 mr-2" />
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="all">Todos</SelectItem>
+                                            <SelectItem value="pending">Pendientes</SelectItem>
+                                            <SelectItem value="verified">Verificados</SelectItem>
+                                        </SelectContent>
+                                    </Select>
                                 </div>
                             </CardContent>
                         </Card>
 
-                        {/* Virtualized Table */}
+                        {/* Responsive Table */}
                         <Card variant="glass" className="overflow-hidden">
-                            {/* Table Header */}
-                            <div className="bg-secondary">
-                                <div className="grid grid-cols-[50px_150px_1fr_150px_80px_90px] p-4 text-sm font-medium text-foreground">
+                            {/* Table Header - Hidden on mobile */}
+                            <div className="hidden md:block bg-secondary">
+                                <div className="grid grid-cols-[50px_120px_1fr_120px_80px_90px] lg:grid-cols-[50px_150px_1fr_150px_80px_90px] p-4 text-sm font-medium text-foreground">
                                     <div>N°</div>
                                     <div>Código</div>
                                     <div>Descripción</div>
@@ -364,114 +396,238 @@ export function ProductsPage({ selectedListId: initialListId }: ProductsPageProp
                                         return (
                                             <div
                                                 key={product.id}
-                                                className="grid grid-cols-[50px_150px_1fr_150px_80px_90px] items-center p-4 border-b border-border hover:bg-secondary/50 absolute w-full"
+                                                className="absolute w-full"
                                                 style={{
                                                     height: `${virtualRow.size}px`,
                                                     transform: `translateY(${virtualRow.start}px)`,
                                                     contain: 'layout style paint',
                                                 }}
                                             >
-                                                <div className="text-muted-foreground">{rowIndex}</div>
-                                                <div className="flex items-center gap-2">
-                                                    {product.status === "pending" ? (
-                                                        <AlertTriangle className="h-4 w-4 text-warning flex-shrink-0" />
-                                                    ) : (
-                                                        <CheckCircle2 className="h-4 w-4 text-success flex-shrink-0" />
-                                                    )}
-                                                    {editingId === product.id ? (
-                                                        <Input
-                                                            value={editValues.code || ""}
-                                                            onChange={(e) => setEditValues({ ...editValues, code: e.target.value })}
-                                                            className="h-8 w-20"
-                                                        />
-                                                    ) : (
-                                                        <span className="font-mono text-foreground truncate">{product.code}</span>
-                                                    )}
+                                                {/* Mobile Card Layout */}
+                                                <div className="md:hidden p-3 border-b border-border">
+                                                    <div className="bg-secondary/30 rounded-lg p-4 space-y-2">
+                                                        {/* Header with status */}
+                                                        <div className="flex items-center justify-between">
+                                                            <span className="text-xs text-muted-foreground bg-secondary px-2 py-1 rounded">#{rowIndex}</span>
+                                                            {product.status === "pending" ? (
+                                                                <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-warning/10 text-warning">
+                                                                    Pendiente
+                                                                </span>
+                                                            ) : (
+                                                                <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-success/10 text-success">
+                                                                    Verificado
+                                                                </span>
+                                                            )}
+                                                        </div>
+
+                                                        {editingId === product.id ? (
+                                                            /* Editing Mode */
+                                                            <>
+                                                                <div className="space-y-2">
+                                                                    <div>
+                                                                        <label className="text-xs text-muted-foreground">Código</label>
+                                                                        <Input
+                                                                            value={editValues.code || ''}
+                                                                            onChange={(e) => setEditValues({ ...editValues, code: e.target.value })}
+                                                                            className="h-8 text-sm"
+                                                                        />
+                                                                    </div>
+                                                                    <div>
+                                                                        <label className="text-xs text-muted-foreground">Nombre</label>
+                                                                        <Input
+                                                                            value={editValues.name || ''}
+                                                                            onChange={(e) => setEditValues({ ...editValues, name: e.target.value })}
+                                                                            className="h-8 text-sm"
+                                                                        />
+                                                                    </div>
+                                                                    <div className="flex gap-2">
+                                                                        <div className="flex-1">
+                                                                            <label className="text-xs text-muted-foreground">Marca</label>
+                                                                            <Input
+                                                                                value={editValues.brand || ''}
+                                                                                onChange={(e) => setEditValues({ ...editValues, brand: e.target.value })}
+                                                                                className="h-8 text-sm"
+                                                                            />
+                                                                        </div>
+                                                                        <div className="w-24">
+                                                                            <label className="text-xs text-muted-foreground">Precio $</label>
+                                                                            <Input
+                                                                                type="number"
+                                                                                step="0.01"
+                                                                                value={editValues.price || 0}
+                                                                                onChange={(e) => setEditValues({ ...editValues, price: parseFloat(e.target.value) || 0 })}
+                                                                                className="h-8 text-sm"
+                                                                            />
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                                <div className="flex gap-2 pt-2 border-t border-border/50">
+                                                                    <Button
+                                                                        variant="ghost"
+                                                                        size="sm"
+                                                                        onClick={() => { setEditingId(null); setEditValues({}); }}
+                                                                        className="flex-1"
+                                                                    >
+                                                                        Cancelar
+                                                                    </Button>
+                                                                    <Button
+                                                                        size="sm"
+                                                                        onClick={handleSave}
+                                                                        className="flex-1"
+                                                                        disabled={updateProductMutation.isPending}
+                                                                    >
+                                                                        {updateProductMutation.isPending ? 'Guardando...' : 'Guardar'}
+                                                                    </Button>
+                                                                </div>
+                                                            </>
+                                                        ) : (
+                                                            /* View Mode */
+                                                            <>
+                                                                <div>
+                                                                    <p className="font-semibold text-foreground text-sm leading-tight">{product.name}</p>
+                                                                    {product.code && (
+                                                                        <p className="text-xs text-muted-foreground font-mono mt-1">Código: {product.code}</p>
+                                                                    )}
+                                                                </div>
+                                                                <div className="flex items-center justify-between text-sm">
+                                                                    {product.brand && (
+                                                                        <span className="bg-primary/10 text-primary text-xs px-2 py-0.5 rounded">{product.brand}</span>
+                                                                    )}
+                                                                    <span className="font-bold text-foreground text-lg">
+                                                                        ${typeof product.price === 'number' ? product.price.toFixed(2) : (product.price ?? '0.00')}
+                                                                    </span>
+                                                                </div>
+                                                                <div className="flex gap-2 pt-2 border-t border-border/50">
+                                                                    <Button
+                                                                        variant="ghost"
+                                                                        size="sm"
+                                                                        onClick={() => handleEdit(product)}
+                                                                        className="flex-1"
+                                                                    >
+                                                                        <Edit2 className="h-4 w-4 mr-1" />
+                                                                        Editar
+                                                                    </Button>
+                                                                    {product.status === "pending" && (
+                                                                        <Button
+                                                                            variant="ghost"
+                                                                            size="sm"
+                                                                            onClick={() => handleVerify(product.id)}
+                                                                            className="flex-1 text-success"
+                                                                        >
+                                                                            <Check className="h-4 w-4 mr-1" />
+                                                                            Verificar
+                                                                        </Button>
+                                                                    )}
+                                                                </div>
+                                                            </>
+                                                        )}
+                                                    </div>
                                                 </div>
-                                                <div className="min-w-0">
-                                                    {editingId === product.id ? (
-                                                        <Input
-                                                            value={editValues.name || ""}
-                                                            onChange={(e) => setEditValues({ ...editValues, name: e.target.value })}
-                                                            className="h-8"
-                                                        />
-                                                    ) : (
-                                                        <span className="text-foreground truncate block">{product.name}</span>
-                                                    )}
-                                                </div>
-                                                <div>
-                                                    {editingId === product.id ? (
-                                                        <Input
-                                                            value={editValues.brand || ""}
-                                                            onChange={(e) => setEditValues({ ...editValues, brand: e.target.value })}
-                                                            className="h-8 w-24"
-                                                        />
-                                                    ) : (
-                                                        <span className="text-muted-foreground truncate block">{product.brand}</span>
-                                                    )}
-                                                </div>
-                                                <div className="text-right">
-                                                    {editingId === product.id ? (
-                                                        <Input
-                                                            type="number"
-                                                            step="0.01"
-                                                            value={editValues.price || ''}
-                                                            onChange={(e) => setEditValues({ ...editValues, price: parseFloat(e.target.value) })}
-                                                            className="h-8 w-20 text-right"
-                                                        />
-                                                    ) : (
-                                                        <span className="font-medium text-foreground">
-                                                            ${typeof product.price === 'number' ? product.price.toFixed(2) : product.price}
-                                                        </span>
-                                                    )}
-                                                </div>
-                                                <div className="flex items-center justify-center gap-1">
-                                                    {editingId === product.id ? (
-                                                        <>
-                                                            <Button
-                                                                variant="ghost"
-                                                                size="icon-sm"
-                                                                onClick={handleSave}
-                                                                className="text-success hover:bg-success/10"
-                                                                disabled={updateProductMutation.isPending}
-                                                            >
-                                                                <Save className="h-4 w-4" />
-                                                            </Button>
-                                                            <Button
-                                                                variant="ghost"
-                                                                size="icon-sm"
-                                                                onClick={() => {
-                                                                    setEditingId(null);
-                                                                    setEditValues({});
-                                                                }}
-                                                                className="text-destructive hover:bg-destructive/10"
-                                                            >
-                                                                <X className="h-4 w-4" />
-                                                            </Button>
-                                                        </>
-                                                    ) : (
-                                                        <>
-                                                            <Button
-                                                                variant="ghost"
-                                                                size="icon-sm"
-                                                                onClick={() => handleEdit(product)}
-                                                                className="text-muted-foreground hover:text-foreground"
-                                                            >
-                                                                <Edit2 className="h-4 w-4" />
-                                                            </Button>
-                                                            {product.status === "pending" && (
+
+                                                {/* Desktop Row Layout */}
+                                                <div className="hidden md:grid grid-cols-[50px_120px_1fr_120px_80px_90px] lg:grid-cols-[50px_150px_1fr_150px_80px_90px] items-center p-4 border-b border-border hover:bg-secondary/50 h-full">
+                                                    <div className="text-muted-foreground">{rowIndex}</div>
+                                                    <div className="flex items-center gap-2">
+                                                        {product.status === "pending" ? (
+                                                            <AlertTriangle className="h-4 w-4 text-warning flex-shrink-0" />
+                                                        ) : (
+                                                            <CheckCircle2 className="h-4 w-4 text-success flex-shrink-0" />
+                                                        )}
+                                                        {editingId === product.id ? (
+                                                            <Input
+                                                                value={editValues.code || ""}
+                                                                onChange={(e) => setEditValues({ ...editValues, code: e.target.value })}
+                                                                className="h-8 w-20"
+                                                            />
+                                                        ) : (
+                                                            <span className="font-mono text-foreground truncate">{product.code}</span>
+                                                        )}
+                                                    </div>
+                                                    <div className="min-w-0">
+                                                        {editingId === product.id ? (
+                                                            <Input
+                                                                value={editValues.name || ""}
+                                                                onChange={(e) => setEditValues({ ...editValues, name: e.target.value })}
+                                                                className="h-8"
+                                                            />
+                                                        ) : (
+                                                            <span className="text-foreground truncate block">{product.name}</span>
+                                                        )}
+                                                    </div>
+                                                    <div>
+                                                        {editingId === product.id ? (
+                                                            <Input
+                                                                value={editValues.brand || ""}
+                                                                onChange={(e) => setEditValues({ ...editValues, brand: e.target.value })}
+                                                                className="h-8 w-24"
+                                                            />
+                                                        ) : (
+                                                            <span className="text-muted-foreground truncate block">{product.brand}</span>
+                                                        )}
+                                                    </div>
+                                                    <div className="text-right">
+                                                        {editingId === product.id ? (
+                                                            <Input
+                                                                type="number"
+                                                                step="0.01"
+                                                                value={editValues.price || ''}
+                                                                onChange={(e) => setEditValues({ ...editValues, price: parseFloat(e.target.value) })}
+                                                                className="h-8 w-20 text-right"
+                                                            />
+                                                        ) : (
+                                                            <span className="font-medium text-foreground">
+                                                                ${typeof product.price === 'number' ? product.price.toFixed(2) : product.price}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    <div className="flex items-center justify-center gap-1">
+                                                        {editingId === product.id ? (
+                                                            <>
                                                                 <Button
                                                                     variant="ghost"
                                                                     size="icon-sm"
-                                                                    onClick={() => handleVerify(product.id)}
-                                                                    className="text-success"
-                                                                    disabled={verifyProductMutation.isPending}
+                                                                    onClick={handleSave}
+                                                                    className="text-success hover:bg-success/10"
+                                                                    disabled={updateProductMutation.isPending}
                                                                 >
-                                                                    <Check className="h-4 w-4" />
+                                                                    <Save className="h-4 w-4" />
                                                                 </Button>
-                                                            )}
-                                                        </>
-                                                    )}
+                                                                <Button
+                                                                    variant="ghost"
+                                                                    size="icon-sm"
+                                                                    onClick={() => {
+                                                                        setEditingId(null);
+                                                                        setEditValues({});
+                                                                    }}
+                                                                    className="text-destructive hover:bg-destructive/10"
+                                                                >
+                                                                    <X className="h-4 w-4" />
+                                                                </Button>
+                                                            </>
+                                                        ) : (
+                                                            <>
+                                                                <Button
+                                                                    variant="ghost"
+                                                                    size="icon-sm"
+                                                                    onClick={() => handleEdit(product)}
+                                                                    className="text-muted-foreground hover:text-foreground"
+                                                                >
+                                                                    <Edit2 className="h-4 w-4" />
+                                                                </Button>
+                                                                {product.status === "pending" && (
+                                                                    <Button
+                                                                        variant="ghost"
+                                                                        size="icon-sm"
+                                                                        onClick={() => handleVerify(product.id)}
+                                                                        className="text-success"
+                                                                        disabled={verifyProductMutation.isPending}
+                                                                    >
+                                                                        <Check className="h-4 w-4" />
+                                                                    </Button>
+                                                                )}
+                                                            </>
+                                                        )}
+                                                    </div>
                                                 </div>
                                             </div>
                                         );

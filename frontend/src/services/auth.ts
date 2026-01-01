@@ -6,6 +6,9 @@
 import { api } from './api';
 import { storage } from './storage';
 
+// Check if running in mock mode
+const MOCK_MODE = import.meta.env.VITE_MOCK_API === 'true';
+
 export interface LoginCredentials {
     email: string;
     password: string;
@@ -31,6 +34,21 @@ export interface AuthResponse {
  * Login user and save token.
  */
 export async function login(credentials: LoginCredentials): Promise<User> {
+    // Mock mode: simulate login without API
+    if (MOCK_MODE) {
+        const mockUser: User = {
+            id: 1,
+            email: credentials.email,
+            is_active: true,
+        };
+
+        await storage.setToken('mock-token-' + Date.now());
+        await storage.setUser(mockUser);
+
+        return mockUser;
+    }
+
+    // Real API mode
     const response = await api.post<AuthResponse>('/auth/login', credentials);
     const { access_token } = response.data;
 
@@ -48,6 +66,12 @@ export async function login(credentials: LoginCredentials): Promise<User> {
  * Register new user and auto-login.
  */
 export async function register(data: RegisterData): Promise<User> {
+    // Mock mode: simulate registration
+    if (MOCK_MODE) {
+        return login(data);
+    }
+
+    // Real API mode
     // Register user
     await api.post<User>('/auth/register', data);
 
@@ -66,6 +90,20 @@ export async function logout(): Promise<void> {
  * Get current authenticated user.
  */
 export async function getCurrentUser(): Promise<User> {
+    // Mock mode: return user from storage
+    if (MOCK_MODE) {
+        const user = await storage.getUser();
+        if (user) return user;
+
+        // Return default mock user if not in storage
+        return {
+            id: 1,
+            email: 'demo@example.com',
+            is_active: true,
+        };
+    }
+
+    // Real API mode
     const response = await api.get<User>('/auth/me');
     return response.data;
 }
@@ -77,6 +115,12 @@ export async function isAuthenticated(): Promise<boolean> {
     const token = await storage.getToken();
     if (!token) return false;
 
+    // Mock mode: always authenticated if token exists
+    if (MOCK_MODE) {
+        return true;
+    }
+
+    // Real API mode
     try {
         await getCurrentUser();
         return true;

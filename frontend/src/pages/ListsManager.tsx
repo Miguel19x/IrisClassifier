@@ -41,7 +41,6 @@ export function ListsManagerPage({ onSelectList }: ListsManagerProps) {
     const { takePhoto, pickFromGallery } = useCamera();
 
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
-    const [uploadMode, setUploadMode] = useState<'file' | 'camera'>('file');
     const [selectedForCompare, setSelectedForCompare] = useState<number[]>([]);
     const [comparisonResult, setComparisonResult] = useState<Record<string, unknown> | null>(null);
     const [useAI, setUseAI] = useState(true);
@@ -73,7 +72,6 @@ export function ListsManagerPage({ onSelectList }: ListsManagerProps) {
                 const blob = await response.blob();
                 const file = new File([blob], `photo_${Date.now()}.jpg`, { type: 'image/jpeg' });
                 setSelectedFile(file);
-                setUploadMode('camera');
             }
         } catch (err) {
             alert('Error al tomar foto: ' + (err instanceof Error ? err.message : 'Error desconocido'));
@@ -88,7 +86,6 @@ export function ListsManagerPage({ onSelectList }: ListsManagerProps) {
                 const blob = await response.blob();
                 const file = new File([blob], `gallery_${Date.now()}.jpg`, { type: 'image/jpeg' });
                 setSelectedFile(file);
-                setUploadMode('camera');
             }
         } catch (err) {
             alert('Error al seleccionar imagen: ' + (err instanceof Error ? err.message : 'Error desconocido'));
@@ -200,21 +197,18 @@ export function ListsManagerPage({ onSelectList }: ListsManagerProps) {
                         value={totalLists}
                         icon={FileText}
                         variant="primary"
-                        delay={0}
                     />
                     <StatsCard
                         title="Total Productos"
                         value={totalProducts}
                         icon={Package}
                         variant="accent"
-                        delay={0.1}
                     />
                     <StatsCard
                         title="Completadas"
                         value={completedLists}
                         icon={CheckCircle2}
                         variant="success"
-                        delay={0.2}
                     />
                     {processingLists > 0 && (
                         <StatsCard
@@ -222,7 +216,6 @@ export function ListsManagerPage({ onSelectList }: ListsManagerProps) {
                             value={processingLists}
                             icon={Clock}
                             variant="warning"
-                            delay={0.3}
                         />
                     )}
                 </div>
@@ -238,80 +231,70 @@ export function ListsManagerPage({ onSelectList }: ListsManagerProps) {
                         </CardTitle>
                     </CardHeader>
                     <CardContent>
-                        {/* Tabs */}
-                        <div className="flex gap-2 mb-6">
-                            <Button
-                                variant={uploadMode === 'file' ? 'default' : 'outline'}
-                                onClick={() => setUploadMode('file')}
-                                className="gap-2"
-                            >
-                                <FileText className="h-4 w-4" />
-                                Subir Archivo
-                            </Button>
-                            <Button
-                                variant={uploadMode === 'camera' ? 'default' : 'outline'}
-                                onClick={() => setUploadMode('camera')}
-                                className="gap-2"
-                            >
-                                <Camera className="h-4 w-4" />
-                                Usar Cámara
-                            </Button>
-                        </div>
+                        <div className="space-y-4">
+                            {/* File Upload Section - Always visible */}
+                            <div className="border-2 border-dashed border-border rounded-xl p-6 text-center hover:border-primary/50 transition-colors">
+                                <input
+                                    type="file"
+                                    accept=".pdf,.xlsx,.xls,.csv"
+                                    onChange={handleFileChange}
+                                    className="hidden"
+                                    id="file-upload"
+                                />
+                                <label htmlFor="file-upload" className="cursor-pointer block">
+                                    <Upload className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
+                                    <p className="text-foreground font-medium mb-1">
+                                        Seleccionar Archivo
+                                    </p>
+                                    <p className="text-sm text-muted-foreground">
+                                        PDF, Excel (.xlsx, .xls) o CSV
+                                    </p>
+                                </label>
+                            </div>
 
-                        {uploadMode === 'file' ? (
-                            <div className="space-y-4">
-                                <div className="border-2 border-dashed border-border rounded-xl p-8 text-center hover:border-primary/50 transition-colors">
-                                    <input
-                                        type="file"
-                                        accept=".pdf,.xlsx,.xls,.csv"
-                                        onChange={handleFileChange}
-                                        className="hidden"
-                                        id="file-upload"
-                                    />
-                                    <label htmlFor="file-upload" className="cursor-pointer">
-                                        <Upload className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                                        <p className="text-foreground font-medium mb-1">
-                                            Arrastra un archivo o haz clic para seleccionar
-                                        </p>
-                                        <p className="text-sm text-muted-foreground">
-                                            PDF, Excel (.xlsx, .xls) o CSV
-                                        </p>
-                                    </label>
+                            {/* Camera/Gallery Section - Mobile/Tablet Only */}
+                            <div className="lg:hidden">
+                                <p className="text-xs text-muted-foreground mb-2 text-center">O usar cámara</p>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <button
+                                        onClick={handleTakePhoto}
+                                        className="flex flex-col items-center justify-center gap-2 p-4 border-2 border-dashed border-border rounded-xl hover:border-primary/50 hover:bg-secondary/30 transition-all"
+                                    >
+                                        <Camera className="h-6 w-6 text-muted-foreground" />
+                                        <span className="text-sm font-medium text-foreground">Tomar Foto</span>
+                                    </button>
+                                    <button
+                                        onClick={handlePickFromGallery}
+                                        className="flex flex-col items-center justify-center gap-2 p-4 border-2 border-dashed border-border rounded-xl hover:border-primary/50 hover:bg-secondary/30 transition-all"
+                                    >
+                                        <ImageIcon className="h-6 w-6 text-muted-foreground" />
+                                        <span className="text-sm font-medium text-foreground">Galería</span>
+                                    </button>
                                 </div>
+                            </div>
 
-                                {selectedFile && (
-                                    <div className="flex items-center justify-between p-4 rounded-lg bg-secondary animate-slide-up">
-                                        <div className="flex items-center gap-3">
-                                            <FileText className="h-8 w-8 text-primary" />
-                                            <div>
-                                                <p className="font-medium text-foreground">{selectedFile.name}</p>
-                                                <p className="text-sm text-muted-foreground">
-                                                    {formatFileSize(selectedFile.size)}
-                                                </p>
-                                            </div>
+                            {/* Selected File Preview */}
+                            {selectedFile && (
+                                <div className="flex items-center justify-between p-4 rounded-lg bg-secondary animate-slide-up">
+                                    <div className="flex items-center gap-3 min-w-0">
+                                        <FileText className="h-8 w-8 text-primary flex-shrink-0" />
+                                        <div className="min-w-0">
+                                            <p className="font-medium text-foreground truncate">{selectedFile.name}</p>
+                                            <p className="text-sm text-muted-foreground">
+                                                {formatFileSize(selectedFile.size)}
+                                            </p>
                                         </div>
-                                        <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            onClick={() => setSelectedFile(null)}
-                                        >
-                                            <X className="h-4 w-4" />
-                                        </Button>
                                     </div>
-                                )}
-                            </div>
-                        ) : (
-                            <div className="flex gap-4">
-                                <Button variant="outline" size="lg" className="flex-1 gap-2 py-8" onClick={handleTakePhoto}>
-                                    <Camera className="h-6 w-6" />
-                                    Tomar Foto
-                                </Button>
-                                <Button variant="outline" size="lg" className="flex-1 gap-2 py-8" onClick={handlePickFromGallery}>
-                                    <ImageIcon className="h-6 w-6" />
-                                    Desde Galería
-                                </Button>
-                            </div>
-                        )}
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        onClick={() => setSelectedFile(null)}
+                                    >
+                                        <X className="h-4 w-4" />
+                                    </Button>
+                                </div>
+                            )}
+                        </div>
 
                         <Button
                             variant="premium"
@@ -393,12 +376,12 @@ export function ListsManagerPage({ onSelectList }: ListsManagerProps) {
                                                 onCheckedChange={() => toggleSelectForCompare(list.id)}
                                                 className="mt-1"
                                             />
-                                            <div className="flex-1 min-w-0">
-                                                <div className="flex items-start justify-between gap-2 mb-2">
-                                                    <h3 className="font-semibold text-foreground truncate group-hover:text-primary transition-colors">
+                                            <div className="flex-1 min-w-0 overflow-hidden">
+                                                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-1 sm:gap-2 mb-2">
+                                                    <h3 className="font-semibold text-foreground truncate group-hover:text-primary transition-colors text-sm sm:text-base max-w-full">
                                                         {list.name}
                                                     </h3>
-                                                    <Badge variant={list.status === 'completed' ? 'completed' : 'processing'}>
+                                                    <Badge variant={list.status === 'completed' ? 'completed' : 'processing'} className="self-start flex-shrink-0 text-xs">
                                                         {list.status === 'completed' ? 'Completada' : 'Procesando...'}
                                                     </Badge>
                                                 </div>

@@ -3,6 +3,7 @@ import { lazy, Suspense, useState, useEffect } from 'react';
 import './index.css';
 import { LoginPage } from './pages/Login';
 import { AuthProvider, useAuth } from './hooks/useAuth';
+import { ExportConfigProvider } from './contexts/ExportConfigContext';
 import { Header } from './components/layout/Header';
 import { Footer } from './components/layout/Footer';
 import { Toaster } from './components/ui/sonner';
@@ -12,6 +13,7 @@ import { TooltipProvider } from './components/ui/tooltip';
 const ListsManagerPage = lazy(() => import('./pages/ListsManager').then(m => ({ default: m.ListsManagerPage })));
 const ProductsPage = lazy(() => import('./pages/Products').then(m => ({ default: m.ProductsPage })));
 const ListingsManagementPage = lazy(() => import('./pages/ListingsManagement').then(m => ({ default: m.ListingsManagementPage })));
+const ExportSettingsPage = lazy(() => import('./pages/ExportSettings').then(m => ({ default: m.ExportSettingsPage })));
 
 // Create a client with optimized cache settings (as per PERFORMANCE_TUNING.md)
 const queryClient = new QueryClient({
@@ -25,7 +27,7 @@ const queryClient = new QueryClient({
     },
 });
 
-type Page = 'lists' | 'products' | 'management';
+type Page = 'lists' | 'products' | 'management' | 'export-settings';
 
 function LoadingSpinner() {
     return (
@@ -64,24 +66,30 @@ function MainApp() {
         setCurrentPage(page);
     };
 
+    // Determine if header should be shown (hide on export-settings page)
+    const showHeader = currentPage !== 'export-settings';
+
     return (
         <div className="min-h-screen flex flex-col bg-background">
-            <Header
-                userEmail={user?.email}
-                currentPage={currentPage}
-                onNavigate={handleNavigate}
-                onLogout={logout}
-            />
+            {showHeader && (
+                <Header
+                    userEmail={user?.email}
+                    currentPage={currentPage}
+                    onNavigate={handleNavigate}
+                    onLogout={logout}
+                />
+            )}
 
-            <main className="flex-1 pt-16">
+            <main className={showHeader ? "flex-1 pt-16" : "flex-1"}>
                 <Suspense fallback={<LoadingSpinner />}>
                     {currentPage === 'lists' && <ListsManagerPage onSelectList={handleSelectList} />}
                     {currentPage === 'products' && <ProductsPage selectedListId={selectedListId} />}
-                    {currentPage === 'management' && <ListingsManagementPage />}
+                    {currentPage === 'management' && <ListingsManagementPage onNavigate={handleNavigate} />}
+                    {currentPage === 'export-settings' && <ExportSettingsPage onBack={() => handleNavigate('management')} />}
                 </Suspense>
             </main>
 
-            <Footer />
+            {showHeader && <Footer />}
         </div>
     );
 }
@@ -91,8 +99,10 @@ function App() {
         <QueryClientProvider client={queryClient}>
             <TooltipProvider>
                 <AuthProvider>
-                    <AuthGuard />
-                    <Toaster richColors position="top-right" />
+                    <ExportConfigProvider>
+                        <AuthGuard />
+                        <Toaster richColors position="top-right" />
+                    </ExportConfigProvider>
                 </AuthProvider>
             </TooltipProvider>
         </QueryClientProvider>

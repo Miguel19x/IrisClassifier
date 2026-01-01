@@ -8,7 +8,6 @@ interface StatsCardProps {
     icon: LucideIcon;
     trend?: "up" | "down" | "neutral";
     trendValue?: string;
-    delay?: number;
     variant?: "default" | "primary" | "accent" | "success" | "warning";
 }
 
@@ -18,7 +17,6 @@ export function StatsCard({
     icon: Icon,
     trend,
     trendValue,
-    delay = 0,
     variant = "default",
 }: StatsCardProps) {
     const iconColors = {
@@ -30,18 +28,15 @@ export function StatsCard({
     };
 
     return (
-        <div className="animate-slide-up" style={{ animationDelay: `${delay}s` }}>
+        <div>
             <Card
                 variant="glass"
-                className="p-6 hover:border-primary/30 hover:shadow-glow transition-all duration-300 group"
+                className="p-4 sm:p-6 hover:border-primary/30 hover:shadow-glow transition-all duration-300 group h-full"
             >
-                <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                        <p className="text-sm text-muted-foreground mb-1">{title}</p>
-                        <p
-                            className="text-3xl font-display font-bold text-foreground animate-fade-in"
-                            style={{ animationDelay: `${delay + 0.2}s` }}
-                        >
+                <div className="flex items-start justify-between gap-2">
+                    <div className="flex-1 min-w-0">
+                        <p className="text-xs sm:text-sm text-muted-foreground mb-1 truncate">{title}</p>
+                        <p className="text-2xl sm:text-3xl font-display font-bold text-foreground">
                             {typeof value === 'number' ? value.toLocaleString() : value}
                         </p>
                         {trendValue && (
@@ -61,11 +56,11 @@ export function StatsCard({
                     </div>
                     <div
                         className={cn(
-                            "p-3 rounded-xl transition-all duration-300 group-hover:scale-110",
+                            "p-2 sm:p-3 rounded-xl transition-all duration-300 group-hover:scale-110 flex-shrink-0",
                             iconColors[variant]
                         )}
                     >
-                        <Icon className="h-6 w-6" />
+                        <Icon className="h-5 w-5 sm:h-6 sm:w-6" />
                     </div>
                 </div>
             </Card>
