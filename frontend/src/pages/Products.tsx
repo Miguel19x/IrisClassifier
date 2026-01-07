@@ -262,8 +262,11 @@ export function ProductsPage({ selectedListId: initialListId }: ProductsPageProp
                                                     key={list.id}
                                                     value={list.id.toString()}
                                                     disabled={list.status === 'processing'}
+                                                    className="truncate"
                                                 >
-                                                    {list.name} ({list.product_count} productos)
+                                                    <span className="truncate block">
+                                                        {list.name} ({list.product_count} productos)
+                                                    </span>
                                                 </SelectItem>
                                             ))}
                                         </SelectContent>
@@ -320,20 +323,21 @@ export function ProductsPage({ selectedListId: initialListId }: ProductsPageProp
                         {/* Filters */}
                         <Card variant="glass" className="mb-6">
                             <CardContent className="p-4">
-                                {/* Search Bar */}
-                                <div className="relative mb-4">
-                                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                    <Input
-                                        placeholder="Buscar por código, descripción o marca..."
-                                        value={searchInput}
-                                        onChange={(e) => setSearchInput(e.target.value)}
-                                        className="pl-10"
-                                    />
-                                </div>
-                                {/* Sort and Filter */}
-                                <div className="flex flex-col sm:flex-row gap-2">
+                                <div className="flex flex-col lg:flex-row lg:items-center gap-3">
+                                    {/* Search Bar */}
+                                    <div className="relative flex-1">
+                                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                        <Input
+                                            placeholder="Buscar por código, descripción o marca..."
+                                            value={searchInput}
+                                            onChange={(e) => setSearchInput(e.target.value)}
+                                            className="pl-10"
+                                        />
+                                    </div>
+
+                                    {/* Sort Dropdown */}
                                     <Select value={sortBy} onValueChange={(v: typeof sortBy) => setSortBy(v)}>
-                                        <SelectTrigger className="w-full sm:w-[140px]">
+                                        <SelectTrigger className="w-full lg:w-[140px]">
                                             <SortAsc className="h-4 w-4 mr-2" />
                                             <SelectValue />
                                         </SelectTrigger>
@@ -344,11 +348,13 @@ export function ProductsPage({ selectedListId: initialListId }: ProductsPageProp
                                             <SelectItem value="price">Por Precio</SelectItem>
                                         </SelectContent>
                                     </Select>
+
+                                    {/* Status Filter */}
                                     <Select
                                         value={statusFilter}
                                         onValueChange={(v: typeof statusFilter) => setStatusFilter(v)}
                                     >
-                                        <SelectTrigger className="w-full sm:w-[140px]">
+                                        <SelectTrigger className="w-full lg:w-[140px]">
                                             <Filter className="h-4 w-4 mr-2" />
                                             <SelectValue />
                                         </SelectTrigger>

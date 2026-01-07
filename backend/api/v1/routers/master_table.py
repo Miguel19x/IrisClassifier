@@ -569,17 +569,26 @@ async def _export_to_excel(products: List[MasterProduct], view_mode: str, custom
         else:
             ws.cell(row=row_idx, column=5, value=final)
     
-    # Adjust column widths (skip merged cells)
+    # Adjust column widths based on content with sensible min/max per column
+    # Column min widths: N°=5, Código=15, Descripción=30, Marca=12, Lista=15, USD=10, %=8, Final=10
+    min_widths = {1: 5, 2: 15, 3: 30, 4: 12, 5: 15, 6: 10, 7: 8, 8: 10}
+    max_widths = {1: 8, 2: 25, 3: 60, 4: 20, 5: 25, 6: 12, 7: 10, 8: 12}
+    
     for col_idx, col in enumerate(ws.columns, 1):
         try:
-            # Get column letter from first non-merged cell
             col_letter = openpyxl.utils.get_column_letter(col_idx)
-            # Calculate max length, skipping merged cells
             max_length = 0
             for cell in col:
                 if cell.value and not isinstance(cell, openpyxl.cell.cell.MergedCell):
-                    max_length = max(max_length, len(str(cell.value)))
-            ws.column_dimensions[col_letter].width = min(max_length + 2, 50)
+                    # Account for character width (rough estimation)
+                    cell_len = len(str(cell.value))
+                    max_length = max(max_length, cell_len)
+            
+            # Apply min/max constraints
+            min_w = min_widths.get(col_idx, 10)
+            max_w = max_widths.get(col_idx, 50)
+            width = max(min_w, min(max_length + 2, max_w))
+            ws.column_dimensions[col_letter].width = width
         except Exception:
             pass  # Skip on any error
     
@@ -814,15 +823,23 @@ async def _export_to_excel_with_header(
         else:
             ws.cell(row=row_idx, column=5, value=final)
     
-    # Adjust column widths
+    # Adjust column widths based on content with sensible min/max per column
+    min_widths = {1: 5, 2: 15, 3: 30, 4: 12, 5: 15, 6: 10, 7: 8, 8: 10}
+    max_widths = {1: 8, 2: 25, 3: 60, 4: 20, 5: 25, 6: 12, 7: 10, 8: 12}
+    
     for col_idx, col in enumerate(ws.columns, 1):
         try:
             col_letter = openpyxl.utils.get_column_letter(col_idx)
             max_length = 0
             for cell in col:
                 if cell.value and not isinstance(cell, openpyxl.cell.cell.MergedCell):
-                    max_length = max(max_length, len(str(cell.value)))
-            ws.column_dimensions[col_letter].width = min(max_length + 2, 50)
+                    cell_len = len(str(cell.value))
+                    max_length = max(max_length, cell_len)
+            
+            min_w = min_widths.get(col_idx, 10)
+            max_w = max_widths.get(col_idx, 50)
+            width = max(min_w, min(max_length + 2, max_w))
+            ws.column_dimensions[col_letter].width = width
         except Exception:
             pass
     
@@ -873,16 +890,24 @@ async def _export_to_pdf_with_header(
     
     styles = getSampleStyleSheet()
     
+    # Available page width for table (must match data table calculation)
+    # Landscape letter = 792pt - 72pt margins = 720pt
+    available_width = 720
+    total_width = available_width  # Header uses same width as data table
+    
     # Parse HTML content - split by paragraphs (capture full tag + content)
     paragraph_matches = re.findall(r'(<p[^>]*>)(.*?)</p>', header_html, re.DOTALL)
     if not paragraph_matches:
         paragraph_matches = [('', header_html)]
     
+    # Build header rows for a single-column table
+    header_rows = []
+    
     # Process each paragraph - also split by <br> tags for line breaks
     for p_tag, content in paragraph_matches:
         # Extract alignment from the <p> tag itself
         align_match = re.search(r'text-align:\s*(left|center|right)', p_tag)
-        alignment = align_match.group(1) if align_match else 'left'
+        alignment = align_match.group(1) if align_match else 'center'
         
         # Split by <br> tags (handles <br>, <br/>, <br />)
         lines = re.split(r'<br\s*/?>', content)
@@ -890,8 +915,8 @@ async def _export_to_pdf_with_header(
         for line in lines:
             line = line.strip()
             if not line:
-                # Empty line - add spacer
-                elements.append(Spacer(1, 8))
+                # Empty line - add empty row
+                header_rows.append([''])
                 continue
             
             # Convert HTML tags
@@ -905,15 +930,25 @@ async def _export_to_pdf_with_header(
                 # Create style with proper alignment
                 align_map = {'left': TA_LEFT, 'center': TA_CENTER, 'right': TA_RIGHT}
                 para_style = ParagraphStyle(
-                    'CustomPara',
+                    'HeaderPara',
                     parent=styles['Title'],
-                    alignment=align_map.get(alignment, TA_LEFT),
-                    fontSize=14,
-                    spaceAfter=6
+                    alignment=align_map.get(alignment, TA_CENTER),
+                    fontSize=12,
+                    spaceAfter=2
                 )
-                elements.append(Paragraph(text, para_style))
+                header_rows.append([Paragraph(text, para_style)])
     
-    elements.append(Spacer(1, 12))
+    # Create header table with same width as data table
+    if header_rows:
+        header_table = Table(header_rows, colWidths=[total_width])
+        header_table.setStyle(TableStyle([
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('TOPPADDING', (0, 0), (-1, -1), 2),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 2),
+        ]))
+        elements.append(header_table)
+        elements.append(Spacer(1, 12))
     
     # Headers
     if view_mode == "enterprise":
@@ -923,7 +958,7 @@ async def _export_to_pdf_with_header(
     
     data = [headers]
     
-    # Data rows
+    # Data rows - no truncation, let auto-width handle it
     for idx, product in enumerate(products, 1):
         base_price = float(product.price_usd or 0)
         final = float(product.final_price) if product.final_price else base_price
@@ -931,26 +966,59 @@ async def _export_to_pdf_with_header(
         
         if view_mode == "enterprise":
             row = [
-                idx,
-                (product.clean_code or "")[:20],
-                (product.description or "")[:40],
-                (product.brand or "")[:15],
-                (product.original_list_name or "")[:15],
+                str(idx),
+                product.clean_code or "",
+                product.description or "",
+                product.brand or "",
+                product.original_list_name or "",
                 f"${base_price:.2f}",
                 f"{margin:.1f}%",
                 f"${final:.2f}"
             ]
         else:
             row = [
-                idx,
-                (product.clean_code or "")[:20],
-                (product.description or "")[:50],
-                (product.brand or "")[:15],
+                str(idx),
+                product.clean_code or "",
+                product.description or "",
+                product.brand or "",
                 f"${final:.2f}"
             ]
         data.append(row)
     
-    table = Table(data)
+    # Calculate column widths automatically based on content
+    # Available width: Landscape letter = 792pt - 72pt margins = 720pt
+    available_width = 720
+    num_cols = len(headers)
+    
+    # Calculate max character length per column (sample first 100 rows for performance)
+    sample_data = data[:min(101, len(data))]
+    max_lengths = [0] * num_cols
+    for row in sample_data:
+        for i, cell in enumerate(row):
+            max_lengths[i] = max(max_lengths[i], len(str(cell)))
+    
+    # Minimum widths per column type (in characters)
+    if view_mode == "enterprise":
+        min_chars = [3, 8, 20, 8, 10, 7, 5, 8]  # N°, Código, Desc, Marca, Lista, USD, %, Final
+        max_chars = [5, 25, 80, 25, 25, 10, 7, 10]
+    else:
+        min_chars = [3, 8, 25, 10, 8]  # N°, Código, Desc, Marca, USD
+        max_chars = [5, 30, 100, 30, 10]
+    
+    # Apply min/max constraints
+    for i in range(num_cols):
+        max_lengths[i] = max(min_chars[i], min(max_lengths[i], max_chars[i]))
+    
+    # Convert to widths (approx 6pt per character for Helvetica 8pt)
+    char_width = 5.5
+    raw_widths = [length * char_width for length in max_lengths]
+    
+    # Scale to fill available width
+    total_raw = sum(raw_widths)
+    scale_factor = available_width / total_raw if total_raw > 0 else 1
+    col_widths = [max(20, w * scale_factor) for w in raw_widths]  # Minimum 20pt per column
+    
+    table = Table(data, colWidths=col_widths)
     table.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#1F4E79")),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),

@@ -357,7 +357,7 @@ export function ListingsManagementPage({ onNavigate }: ListingsManagementPagePro
                     <CardContent className="p-4">
                         <div className="flex flex-col lg:flex-row lg:items-center gap-3">
                             {/* Search Bar */}
-                            <div className="relative flex-1 lg:max-w-sm">
+                            <div className="relative flex-1">
                                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                                 <Input
                                     placeholder="Buscar productos..."
@@ -388,12 +388,9 @@ export function ListingsManagementPage({ onNavigate }: ListingsManagementPagePro
                                     className="gap-2"
                                 >
                                     <Thermometer className="h-4 w-4" />
-                                    <span className="hidden sm:inline">Heatmap</span>
+                                    <span>Heatmap</span>
                                 </Button>
                             )}
-
-                            {/* Spacer to push export to the right on desktop */}
-                            <div className="hidden lg:block lg:flex-1" />
 
                             {/* Export Section */}
                             <div className="flex flex-col sm:flex-row gap-2">
@@ -403,8 +400,7 @@ export function ListingsManagementPage({ onNavigate }: ListingsManagementPagePro
                                     onClick={() => onNavigate?.('export-settings')}
                                 >
                                     <Settings className="h-4 w-4" />
-                                    <span className="hidden sm:inline">Opciones de Exportación</span>
-                                    <span className="sm:hidden">Exportar</span>
+                                    <span>Opciones de Exportación</span>
                                     {exportConfig.templateFile && (
                                         <span className="ml-1 px-1.5 py-0.5 text-[10px] rounded bg-success/20 text-success">
                                             Plantilla
@@ -473,7 +469,7 @@ export function ListingsManagementPage({ onNavigate }: ListingsManagementPagePro
                             <div className="text-center">Marca</div>
                             {view === 'business' && (
                                 <>
-                                    <div className="text-center">Empresa</div>
+                                    <div className="text-center">Lista</div>
                                     <div className="text-center">USD</div>
                                     <div className="text-center">%</div>
                                 </>
