@@ -8,18 +8,34 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import {
     Search,
     SortAsc,
-    FileDown,
+    FileText,
     FileSpreadsheet,
     Briefcase,
     User,
     Thermometer,
-    Settings,
+    Undo2,
+    Redo2,
+    Trash2,
+    Check
 } from 'lucide-react';
-import { useInfiniteMasterProducts, usePriceStats, useExportAdvanced, useUpdateMargin, useUpdateFinalPrice } from '../services/queries';
+import {
+    useInfiniteMasterProducts,
+    usePriceStats,
+    useExportAdvanced,
+    useExportAdvancedForPrint,
+    useUpdateMargin,
+    useUpdateFinalPrice,
+    useBulkUpdateMargin,
+    useBulkRename,
+    useBulkDelete,
+    useRestoreProducts
+} from '../services/queries';
+import { useHistory } from '../hooks/useHistory';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
     Select,
     SelectContent,
@@ -29,6 +45,7 @@ import {
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import { useExportConfig } from '@/contexts/ExportConfigContext';
+import { ExportPreviewDialog } from '@/components/ExportPreviewDialog';
 
 interface MasterProduct {
     id: number;
@@ -39,10 +56,11 @@ interface MasterProduct {
     price_usd: number;
     margin_percentage: number | null;
     final_price: number | null;
+    review_status?: 'pending' | 'confirmed' | 'rejected';
 }
 
 const ROW_HEIGHT_DESKTOP = 56;
-const ROW_HEIGHT_MOBILE = 200; // Increased for card layout
+const ROW_HEIGHT_MOBILE_ESTIMATE = 220; // Estimate for initial render, actual height measured dynamically
 
 // Hook to detect mobile viewport
 function useIsMobile() {
@@ -64,9 +82,8 @@ interface ListingsManagementPageProps {
     onNavigate?: (page: Page) => void;
 }
 
-export function ListingsManagementPage({ onNavigate }: ListingsManagementPageProps) {
+export function ListingsManagementPage({ onNavigate: _onNavigate }: ListingsManagementPageProps) {
     const isMobile = useIsMobile();
-    const rowHeight = isMobile ? ROW_HEIGHT_MOBILE : ROW_HEIGHT_DESKTOP;
 
     const [view, setView] = useState<'business' | 'client'>('business');
     const [heatmapEnabled, setHeatmapEnabled] = useState(false);
@@ -76,8 +93,21 @@ export function ListingsManagementPage({ onNavigate }: ListingsManagementPagePro
     const [editValue, setEditValue] = useState('');
     const [exportingFormat, setExportingFormat] = useState<'pdf' | 'excel' | null>(null);
 
+    // Export preview state
+    const [showExportPreview, setShowExportPreview] = useState(false);
+    const [exportPreviewFormat, setExportPreviewFormat] = useState<'pdf' | 'excel'>('pdf');
+
+    // Bulk operations state
+    const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+    const [bulkMargin, setBulkMargin] = useState('');
+    const [replaceText, setReplaceText] = useState('');
+    const [deletionMode, setDeletionMode] = useState(false);
+
     // Export configuration from context
     const { config: exportConfig } = useExportConfig();
+
+    // Undo/Redo system
+    const history = useHistory();
 
     // Debounce search to avoid too many API calls
     const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -117,6 +147,11 @@ export function ListingsManagementPage({ onNavigate }: ListingsManagementPagePro
     const { data: statsData } = usePriceStats();
     const updateMarginMutation = useUpdateMargin();
     const updateFinalPriceMutation = useUpdateFinalPrice();
+    const bulkUpdateMarginMutation = useBulkUpdateMargin();
+    const bulkRenameMutation = useBulkRename();
+    const bulkDeleteMutation = useBulkDelete();
+    const restoreProductsMutation = useRestoreProducts();
+
 
     // Ref for virtualization container
     const tableContainerRef = useRef<HTMLDivElement>(null);
@@ -140,12 +175,16 @@ export function ListingsManagementPage({ onNavigate }: ListingsManagementPagePro
         return 'heatmap-high';
     };
 
-    // Virtualizer for table rows
+    // Virtualizer for table rows with dynamic height measurement for mobile
     const rowVirtualizer = useVirtualizer({
         count: products.length,
         getScrollElement: () => tableContainerRef.current,
-        estimateSize: () => rowHeight,
+        estimateSize: () => isMobile ? ROW_HEIGHT_MOBILE_ESTIMATE : ROW_HEIGHT_DESKTOP,
         overscan: 10,
+        measureElement: isMobile ? (element) => {
+            // Dynamically measure element height on mobile for variable content
+            return element?.getBoundingClientRect().height ?? ROW_HEIGHT_MOBILE_ESTIMATE;
+        } : undefined,
     });
 
     // Force recalculate virtualizer when mobile state or editing changes
@@ -215,8 +254,165 @@ export function ListingsManagementPage({ onNavigate }: ListingsManagementPagePro
         }
     };
 
-    // Advanced export mutation
+    // Selection handlers
+    const toggleSelection = useCallback((id: number) => {
+        setSelectedIds(prev => {
+            const newSet = new Set(prev);
+            if (newSet.has(id)) {
+                newSet.delete(id);
+            } else {
+                newSet.add(id);
+            }
+            return newSet;
+        });
+    }, []);
+
+    const handleSelectAll = useCallback(() => {
+        if (selectedIds.size === products.length) {
+            setSelectedIds(new Set());
+        } else {
+            setSelectedIds(new Set(products.map(p => p.id)));
+        }
+    }, [selectedIds.size, products]);
+
+    // Bulk margin update handler
+    const handleBulkMarginUpdate = useCallback(async () => {
+        const margin = parseFloat(bulkMargin);
+        if (isNaN(margin)) {
+            alert('Por favor ingresa un margen válido');
+            return;
+        }
+
+        try {
+            const result = await bulkUpdateMarginMutation.mutateAsync({
+                margin_percentage: margin,
+                search: debouncedSearch || undefined
+            });
+
+            // Push to history for undo
+            history.pushAction({
+                type: 'MARGIN_UPDATE',
+                timestamp: new Date(),
+                affectedIds: result.updated_ids,
+                previousValues: result.previous_values,
+                newValues: result.updated_ids.map((id: number) => ({
+                    id,
+                    margin_percentage: margin,
+                    final_price: null  // Will be recalculated
+                })),
+                description: `Margen actualizado a ${margin}%`
+            });
+
+            setBulkMargin('');
+            alert(`${result.updated_count} productos actualizados`);
+        } catch {
+            alert('Error al actualizar márgenes');
+        }
+    }, [bulkMargin, debouncedSearch, bulkUpdateMarginMutation, history]);
+
+    // Bulk rename handler
+    const handleBulkRename = useCallback(async () => {
+        if (!searchInput.trim()) {
+            alert('Por favor ingresa texto en el buscador');
+            return;
+        }
+
+        try {
+            const result = await bulkRenameMutation.mutateAsync({
+                target_text: searchInput,
+                replacement_text: replaceText,
+                search: debouncedSearch || undefined
+            });
+
+            // Push to history for undo
+            history.pushAction({
+                type: 'RENAME',
+                timestamp: new Date(),
+                affectedIds: result.updated_ids,
+                previousValues: result.previous_values,
+                description: `Reemplazado "${searchInput}" por "${replaceText}"`
+            });
+
+            setReplaceText('');
+            alert(`${result.updated_count} productos actualizados`);
+        } catch {
+            alert('Error al renombrar productos');
+        }
+    }, [searchInput, replaceText, debouncedSearch, bulkRenameMutation, history]);
+
+    // Bulk delete handler
+    const handleBulkDelete = useCallback(async () => {
+        if (selectedIds.size === 0) {
+            alert('Por favor selecciona productos para eliminar');
+            return;
+        }
+
+        if (!confirm(`¿Eliminar ${selectedIds.size} productos seleccionados?`)) {
+            return;
+        }
+
+        try {
+            const result = await bulkDeleteMutation.mutateAsync({
+                productIds: Array.from(selectedIds)
+            });
+
+            // Push to history for undo
+            history.pushAction({
+                type: 'DELETE',
+                timestamp: new Date(),
+                affectedIds: Array.from(selectedIds),
+                previousValues: result.deleted_products,
+                description: `Eliminados ${result.deleted_count} productos`
+            });
+
+            setSelectedIds(new Set());
+            alert(`${result.deleted_count} productos eliminados`);
+        } catch {
+            alert('Error al eliminar productos');
+        }
+    }, [selectedIds, bulkDeleteMutation, history]);
+
+    // Undo/Redo handlers
+    const handleUndo = useCallback(async () => {
+        const action = history.getUndoAction();
+        if (!action) return;
+
+        try {
+            await restoreProductsMutation.mutateAsync({
+                products: action.previousValues
+            });
+            history.undo();
+        } catch {
+            alert('Error al deshacer');
+        }
+    }, [history, restoreProductsMutation]);
+
+    const handleRedo = useCallback(async () => {
+        const action = history.getRedoAction();
+        if (!action) return;
+
+        try {
+            if (action.type === 'DELETE') {
+                // For delete, redo means delete again
+                await bulkDeleteMutation.mutateAsync({
+                    productIds: action.affectedIds
+                });
+            } else {
+                // For other operations, restore new values
+                await restoreProductsMutation.mutateAsync({
+                    products: action.newValues || []
+                });
+            }
+            history.redo();
+        } catch {
+            alert('Error al rehacer');
+        }
+    }, [history, restoreProductsMutation, bulkDeleteMutation]);
+
+
+    // Advanced export mutations
     const exportAdvancedMutation = useExportAdvanced();
+    const exportForPrintMutation = useExportAdvancedForPrint();
 
 
     // Map frontend sort values to backend API values
@@ -226,9 +422,18 @@ export function ListingsManagementPage({ onNavigate }: ListingsManagementPagePro
     };
 
     const handleExportPDF = useCallback(async () => {
+        // Show preview instead of direct export
+        setExportPreviewFormat('pdf');
+        setShowExportPreview(true);
+    }, []);
+
+    const handleExportPDFConfirmed = useCallback(async () => {
         try {
             setExportingFormat('pdf');
             const viewMode = view === 'business' ? 'enterprise' : 'client';
+
+            // Context-aware export: pass search filter if searchInput is non-empty
+            const exportSearch = searchInput.trim() ? debouncedSearch : undefined;
 
             // Use advanced export if template is configured
             if (exportConfig.headerMode === 'template' && exportConfig.templateFile) {
@@ -242,6 +447,7 @@ export function ListingsManagementPage({ onNavigate }: ListingsManagementPagePro
                     },
                     view_mode: viewMode,
                     sort_by: mapSortBy(sortBy),
+                    search: exportSearch,
                     format: 'pdf',
                 });
             } else {
@@ -255,6 +461,7 @@ export function ListingsManagementPage({ onNavigate }: ListingsManagementPagePro
                     },
                     view_mode: viewMode,
                     sort_by: mapSortBy(sortBy),
+                    search: exportSearch,
                     format: 'pdf',
                 });
             }
@@ -263,12 +470,21 @@ export function ListingsManagementPage({ onNavigate }: ListingsManagementPagePro
         } finally {
             setExportingFormat(null);
         }
-    }, [exportAdvancedMutation, view, sortBy, exportConfig]);
+    }, [exportAdvancedMutation, view, sortBy, exportConfig, searchInput, debouncedSearch]);
 
     const handleExportExcel = useCallback(async () => {
+        // Show preview instead of direct export
+        setExportPreviewFormat('excel');
+        setShowExportPreview(true);
+    }, []);
+
+    const handleExportExcelConfirmed = useCallback(async () => {
         try {
             setExportingFormat('excel');
             const viewMode = view === 'business' ? 'enterprise' : 'client';
+
+            // Context-aware export: pass search filter if searchInput is non-empty
+            const exportSearch = searchInput.trim() ? debouncedSearch : undefined;
 
             // Use advanced export if template is configured
             if (exportConfig.headerMode === 'template' && exportConfig.templateFile) {
@@ -282,6 +498,7 @@ export function ListingsManagementPage({ onNavigate }: ListingsManagementPagePro
                     },
                     view_mode: viewMode,
                     sort_by: mapSortBy(sortBy),
+                    search: exportSearch,
                     format: 'excel',
                 });
             } else {
@@ -295,6 +512,7 @@ export function ListingsManagementPage({ onNavigate }: ListingsManagementPagePro
                     },
                     view_mode: viewMode,
                     sort_by: mapSortBy(sortBy),
+                    search: exportSearch,
                     format: 'excel',
                 });
             }
@@ -303,7 +521,7 @@ export function ListingsManagementPage({ onNavigate }: ListingsManagementPagePro
         } finally {
             setExportingFormat(null);
         }
-    }, [exportAdvancedMutation, view, sortBy, exportConfig]);
+    }, [exportAdvancedMutation, view, sortBy, exportConfig, searchInput, debouncedSearch]);
 
     if (isLoading) {
         return (
@@ -392,45 +610,175 @@ export function ListingsManagementPage({ onNavigate }: ListingsManagementPagePro
                                 </Button>
                             )}
 
-                            {/* Export Section */}
-                            <div className="flex flex-col sm:flex-row gap-2">
+                            {/* Export Buttons */}
+                            <div className="flex gap-2">
                                 <Button
-                                    variant="premium"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={handleExportPDF}
+                                    disabled={exportingFormat !== null}
                                     className="gap-2"
-                                    onClick={() => onNavigate?.('export-settings')}
                                 >
-                                    <Settings className="h-4 w-4" />
-                                    <span>Opciones de Exportación</span>
-                                    {exportConfig.templateFile && (
-                                        <span className="ml-1 px-1.5 py-0.5 text-[10px] rounded bg-success/20 text-success">
-                                            Plantilla
-                                        </span>
+                                    {exportingFormat === 'pdf' ? (
+                                        <>
+                                            <div className="h-4 w-4 border-2 border-t-transparent border-primary rounded-full animate-spin" />
+                                            Exportando...
+                                        </>
+                                    ) : (
+                                        <>
+                                            <FileText className="h-4 w-4" />
+                                            PDF
+                                        </>
                                     )}
                                 </Button>
-                                <div className="flex gap-2">
-                                    <Button
-                                        variant="outline"
-                                        className="gap-2 flex-1 sm:flex-none"
-                                        onClick={handleExportPDF}
-                                        disabled={exportingFormat !== null}
-                                    >
-                                        <FileDown className="h-4 w-4" />
-                                        {exportingFormat === 'pdf' ? 'Exportando...' : 'PDF'}
-                                    </Button>
-                                    <Button
-                                        variant="outline"
-                                        className="gap-2 flex-1 sm:flex-none"
-                                        onClick={handleExportExcel}
-                                        disabled={exportingFormat !== null}
-                                    >
-                                        <FileSpreadsheet className="h-4 w-4" />
-                                        {exportingFormat === 'excel' ? 'Exportando...' : 'Excel'}
-                                    </Button>
-                                </div>
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={handleExportExcel}
+                                    disabled={exportingFormat !== null}
+                                    className="gap-2"
+                                >
+                                    {exportingFormat === 'excel' ? (
+                                        <>
+                                            <div className="h-4 w-4 border-2 border-t-transparent border-primary rounded-full animate-spin" />
+                                            Exportando...
+                                        </>
+                                    ) : (
+                                        <>
+                                            <FileSpreadsheet className="h-4 w-4" />
+                                            Excel
+                                        </>
+                                    )}
+                                </Button>
+                            </div>
+
+                            {/* Undo/Redo Buttons */}
+                            <div className="flex gap-2">
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={handleUndo}
+                                    disabled={!history.canUndo}
+                                    className="flex items-center gap-2"
+                                    title="Deshacer"
+                                >
+                                    <Undo2 className="h-4 w-4" />
+                                    {!isMobile && 'Deshacer'}
+                                </Button>
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={handleRedo}
+                                    disabled={!history.canRedo}
+                                    className="flex items-center gap-2"
+                                    title="Rehacer"
+                                >
+                                    <Redo2 className="h-4 w-4" />
+                                    {!isMobile && 'Rehacer'}
+                                </Button>
                             </div>
                         </div>
+
+                        {/* Bulk Operations Section */}
+                        {view === 'business' && (
+                            <div className="flex flex-col lg:flex-row gap-3 pt-3 mt-2 border-t border-border/50">
+                                {/* Bulk Margin Update */}
+                                <div className="flex items-center gap-2">
+                                    <label className="text-sm font-medium whitespace-nowrap">Margen masivo:</label>
+                                    <Input
+                                        type="number"
+                                        placeholder="%"
+                                        value={bulkMargin}
+                                        onFocus={() => {
+                                            if (!bulkMargin) setBulkMargin('0.00');
+                                        }}
+                                        onChange={(e) => {
+                                            const value = e.target.value;
+                                            const numValue = parseFloat(value);
+                                            if (value === '' || (numValue >= 0 && numValue <= 100)) {
+                                                setBulkMargin(value);
+                                            }
+                                        }}
+                                        className="w-20 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                    />
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={handleBulkMarginUpdate}
+                                        disabled={!bulkMargin}
+                                    >
+                                        Aplicar a Todos
+                                    </Button>
+                                </div>
+
+                                {/* Find & Replace - Uses main search */}
+                                <div className="flex items-center gap-2 flex-1">
+                                    <label className="text-sm font-medium whitespace-nowrap">Reemplazar con:</label>
+                                    <Input
+                                        placeholder="Nuevo texto"
+                                        value={replaceText}
+                                        onChange={(e) => setReplaceText(e.target.value)}
+                                        className="flex-1 min-w-[80px]"
+                                    />
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={handleBulkRename}
+                                        disabled={!searchInput || !replaceText}
+                                    >
+                                        Ejecutar
+                                    </Button>
+                                </div>
+
+                                {/* Deletion Mode Toggle */}
+                                <Button
+                                    variant={deletionMode ? "destructive" : "outline"}
+                                    size="sm"
+                                    onClick={() => {
+                                        if (deletionMode && selectedIds.size > 0) {
+                                            handleBulkDelete();
+                                        } else {
+                                            setDeletionMode(!deletionMode);
+                                            if (deletionMode) setSelectedIds(new Set());
+                                        }
+                                    }}
+                                    className="gap-2"
+                                    title={deletionMode && selectedIds.size > 0 ? "Eliminar seleccionados" : deletionMode ? "Cancelar eliminación" : "Activar modo eliminación"}
+                                >
+                                    <Trash2 className="h-4 w-4" />
+                                    {deletionMode && selectedIds.size > 0 && `(${selectedIds.size})`}
+                                </Button>
+                            </div>
+                        )}
                     </CardContent>
                 </Card>
+
+                {/* Selection Floating Action Bar */}
+                {selectedIds.size > 0 && (
+                    <div className="fixed bottom-6 right-6 bg-card border border-border rounded-lg shadow-2xl p-4 flex items-center gap-4 z-50 animate-in slide-in-from-bottom-4">
+                        <span className="text-sm font-medium">
+                            {selectedIds.size} seleccionado{selectedIds.size > 1 ? 's' : ''}
+                        </span>
+                        <div className="flex gap-2">
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setSelectedIds(new Set())}
+                            >
+                                Cancelar
+                            </Button>
+                            <Button
+                                variant="destructive"
+                                size="sm"
+                                onClick={handleBulkDelete}
+                                className="gap-2"
+                            >
+                                <Trash2 className="h-4 w-4" />
+                                Eliminar
+                            </Button>
+                        </div>
+                    </div>
+                )}
 
                 {/* Heatmap Legend */}
                 {view === 'business' && heatmapEnabled && (
@@ -460,9 +808,17 @@ export function ListingsManagementPage({ onNavigate }: ListingsManagementPagePro
                         <div className={cn(
                             "grid p-4 text-sm font-medium text-foreground min-w-[600px]",
                             view === 'business'
-                                ? "grid-cols-[40px_100px_1fr_100px_80px_70px_60px_70px]"
-                                : "grid-cols-[40px_100px_1fr_100px_80px]"
+                                ? (deletionMode ? "grid-cols-[40px_40px_100px_1fr_100px_80px_70px_60px_70px]" : "grid-cols-[40px_100px_1fr_100px_80px_70px_60px_70px]")
+                                : (deletionMode ? "grid-cols-[40px_40px_100px_1fr_100px_80px]" : "grid-cols-[40px_100px_1fr_100px_80px]")
                         )}>
+                            {deletionMode && (
+                                <div className="flex items-center justify-center">
+                                    <Checkbox
+                                        checked={selectedIds.size === products.length && products.length > 0}
+                                        onCheckedChange={handleSelectAll}
+                                    />
+                                </div>
+                            )}
                             <div className="text-center">N°</div>
                             <div className="text-center">Código</div>
                             <div className="text-center">Descripción</div>
@@ -498,130 +854,163 @@ export function ListingsManagementPage({ onNavigate }: ListingsManagementPagePro
                                 return (
                                     <div
                                         key={product.id}
+                                        ref={rowVirtualizer.measureElement}
+                                        data-index={virtualRow.index}
                                         className="absolute w-full"
                                         style={{
-                                            height: `${virtualRow.size}px`,
                                             transform: `translateY(${virtualRow.start}px)`,
-                                            contain: 'layout style paint',
                                         }}
                                     >
-                                        {/* Mobile Card Layout */}
-                                        <div className="md:hidden p-3 border-b border-border">
-                                            <div className="bg-secondary/30 rounded-lg p-4 space-y-1">
-                                                {/* Header Row */}
-                                                <div className="flex items-start justify-between gap-2">
-                                                    <div className="flex-1 min-w-0">
-                                                        <p className="font-semibold text-foreground text-sm leading-tight">
-                                                            {product.description || 'Sin descripción'}
-                                                        </p>
-                                                        {product.clean_code && (
-                                                            <p className="text-xs text-muted-foreground font-mono mt-1">
-                                                                Código: {product.clean_code}
+                                        {/* Mobile Card Layout - Redesigned */}
+                                        <div className="md:hidden p-2">
+                                            <div className="bg-card border border-border rounded-xl overflow-hidden shadow-sm">
+                                                {/* Card Header - Product Name + List Badge + Delete Action */}
+                                                <div className="px-4 py-3 bg-secondary/40 border-b border-border/50">
+                                                    <div className="flex items-start gap-3">
+                                                        {/* Delete checkbox - only in business view and when deletion mode is active */}
+                                                        {view === 'business' && deletionMode && (
+                                                            <button
+                                                                onClick={() => toggleSelection(product.id)}
+                                                                className={cn(
+                                                                    "flex-shrink-0 mt-0.5 w-6 h-6 rounded-md border flex items-center justify-center transition-all",
+                                                                    selectedIds.has(product.id)
+                                                                        ? "bg-destructive border-destructive text-destructive-foreground"
+                                                                        : "border-border hover:border-destructive hover:bg-destructive/10"
+                                                                )}
+                                                            >
+                                                                {selectedIds.has(product.id) ? (
+                                                                    <Check className="h-4 w-4" />
+                                                                ) : (
+                                                                    <Trash2 className="h-3 w-3 text-muted-foreground" />
+                                                                )}
+                                                            </button>
+                                                        )}
+                                                        <div className="flex-1 min-w-0">
+                                                            <p className="font-semibold text-foreground text-sm leading-snug">
+                                                                {product.description || 'Sin descripción'}
                                                             </p>
+                                                        </div>
+                                                        <Badge variant="outline" className="text-[10px] shrink-0 px-2 py-0.5 bg-background">
+                                                            {product.original_list_name?.split('.')[0]?.slice(0, 15) || 'N/A'}
+                                                        </Badge>
+                                                    </div>
+                                                </div>
+
+                                                {/* Card Body */}
+                                                <div className="px-4 py-3 space-y-3">
+                                                    {/* Metadata Row - Code, Brand, Index */}
+                                                    <div className="flex items-center gap-2 flex-wrap text-xs">
+                                                        <span className="bg-secondary text-muted-foreground px-2 py-0.5 rounded font-mono">
+                                                            #{rowIndex}
+                                                        </span>
+                                                        {product.clean_code && (
+                                                            <span className="text-muted-foreground font-mono">
+                                                                {product.clean_code}
+                                                            </span>
+                                                        )}
+                                                        {product.brand && (
+                                                            <span className="bg-primary/10 text-primary px-2 py-0.5 rounded">
+                                                                {product.brand}
+                                                            </span>
                                                         )}
                                                     </div>
-                                                    <span className="text-xs text-muted-foreground bg-secondary px-2 py-1 rounded">
-                                                        #{rowIndex}
-                                                    </span>
-                                                </div>
 
-                                                {/* Info Row */}
-                                                <div className="flex flex-wrap items-center gap-2 text-xs">
-                                                    {product.brand && (
-                                                        <span className="bg-primary/10 text-primary px-2 py-0.5 rounded">
-                                                            {product.brand}
-                                                        </span>
-                                                    )}
-                                                    <Badge variant="outline" className="text-[10px]">
-                                                        {product.original_list_name || 'N/A'}
-                                                    </Badge>
-                                                </div>
+                                                    {/* Pricing Section */}
+                                                    <div className="bg-secondary/30 rounded-lg p-3 space-y-2">
+                                                        {/* Business view: Base USD + Margin */}
+                                                        {view === 'business' && (
+                                                            <div className="grid grid-cols-2 gap-3 text-xs">
+                                                                <div className="flex flex-col">
+                                                                    <span className="text-muted-foreground mb-0.5">Base USD</span>
+                                                                    <span className={cn("font-mono font-medium", getHeatmapClass(Number(product.price_usd) || 0))}>
+                                                                        ${(Number(product.price_usd) || 0).toFixed(2)}
+                                                                    </span>
+                                                                </div>
+                                                                <div className="flex flex-col">
+                                                                    <span className="text-muted-foreground mb-0.5">Margen</span>
+                                                                    {editingCell?.id === product.id && editingCell?.field === 'margin' ? (
+                                                                        <div className="flex items-center gap-1">
+                                                                            <Input
+                                                                                type="number"
+                                                                                value={editValue}
+                                                                                onChange={(e) => setEditValue(e.target.value)}
+                                                                                onKeyDown={handleKeyDown}
+                                                                                className="w-14 h-6 text-xs px-1"
+                                                                                autoFocus
+                                                                            />
+                                                                            <span className="text-muted-foreground">%</span>
+                                                                            <Button size="sm" onClick={handleCellSave} className="h-6 w-6 p-0">
+                                                                                ✓
+                                                                            </Button>
+                                                                        </div>
+                                                                    ) : (
+                                                                        <button
+                                                                            onClick={() => handleCellEdit(product.id, 'margin', Number(product.margin_percentage) || 0)}
+                                                                            className="text-accent font-mono font-medium underline underline-offset-2 text-left"
+                                                                        >
+                                                                            {(Number(product.margin_percentage) || 0).toFixed(2)}%
+                                                                        </button>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                        )}
 
-                                                {/* Price Row - Editable in both views */}
-                                                <div className="pt-2 border-t border-border/50 space-y-2">
-                                                    {view === 'business' && (
-                                                        <div className="flex items-center justify-between text-xs">
-                                                            <span className="text-muted-foreground">Base USD:</span>
-                                                            <span className={cn("font-medium", getHeatmapClass(Number(product.price_usd) || 0))}>
-                                                                ${(Number(product.price_usd) || 0).toFixed(2)}
-                                                            </span>
-                                                        </div>
-                                                    )}
-
-                                                    {/* Margin - Only in business view */}
-                                                    {view === 'business' && (
-                                                        <div className="flex items-center justify-between text-xs">
-                                                            <span className="text-muted-foreground">Margen:</span>
-                                                            {editingCell?.id === product.id && editingCell?.field === 'margin' ? (
+                                                        {/* Final Price - Prominent */}
+                                                        <div className="flex items-center justify-between pt-2 border-t border-border/30">
+                                                            <span className="text-sm font-medium text-muted-foreground">Precio:</span>
+                                                            {editingCell?.id === product.id && editingCell?.field === 'finalPrice' ? (
                                                                 <div className="flex items-center gap-1">
+                                                                    <span className="text-muted-foreground">$</span>
                                                                     <Input
                                                                         type="number"
                                                                         value={editValue}
                                                                         onChange={(e) => setEditValue(e.target.value)}
                                                                         onKeyDown={handleKeyDown}
-                                                                        className="w-16 h-6 text-xs px-1"
+                                                                        className="w-20 h-8 text-sm px-2"
                                                                         autoFocus
                                                                     />
-                                                                    <span className="text-muted-foreground">%</span>
-                                                                    <Button size="sm" onClick={handleCellSave} className="h-6 px-2 text-xs">
+                                                                    <Button size="sm" onClick={handleCellSave} className="h-8 w-8 p-0">
                                                                         ✓
                                                                     </Button>
                                                                 </div>
                                                             ) : (
                                                                 <button
-                                                                    onClick={() => handleCellEdit(product.id, 'margin', Number(product.margin_percentage) || 0)}
-                                                                    className="text-accent font-medium underline"
+                                                                    onClick={() => handleCellEdit(product.id, 'finalPrice', Number(product.final_price) || Number(product.price_usd) || 0)}
+                                                                    className={cn(
+                                                                        "text-xl font-bold",
+                                                                        view === 'business' ? "text-success" : "text-foreground"
+                                                                    )}
                                                                 >
-                                                                    {(Number(product.margin_percentage) || 0).toFixed(1)}%
+                                                                    ${(Number(product.final_price) || Number(product.price_usd) || 0).toFixed(2)}
                                                                 </button>
                                                             )}
                                                         </div>
-                                                    )}
-
-                                                    {/* Final Price - Editable in both views */}
-                                                    <div className="flex items-center justify-between">
-                                                        <span className="text-xs text-muted-foreground">Precio:</span>
-                                                        {editingCell?.id === product.id && editingCell?.field === 'finalPrice' ? (
-                                                            <div className="flex items-center gap-1">
-                                                                <span className="text-muted-foreground">$</span>
-                                                                <Input
-                                                                    type="number"
-                                                                    value={editValue}
-                                                                    onChange={(e) => setEditValue(e.target.value)}
-                                                                    onKeyDown={handleKeyDown}
-                                                                    className="w-20 h-7 text-sm px-1"
-                                                                    autoFocus
-                                                                />
-                                                                <Button size="sm" onClick={handleCellSave} className="h-7 px-2 text-xs">
-                                                                    ✓
-                                                                </Button>
-                                                            </div>
-                                                        ) : (
-                                                            <button
-                                                                onClick={() => handleCellEdit(product.id, 'finalPrice', Number(product.final_price) || Number(product.price_usd) || 0)}
-                                                                className={cn(
-                                                                    "text-lg font-bold",
-                                                                    view === 'business' ? "text-success" : "text-foreground"
-                                                                )}
-                                                            >
-                                                                ${(Number(product.final_price) || Number(product.price_usd) || 0).toFixed(2)}
-                                                            </button>
-                                                        )}
                                                     </div>
                                                 </div>
                                             </div>
                                         </div>
 
-                                        {/* Desktop Row Layout */}
-                                        <div
-                                            className={cn(
-                                                "hidden md:grid items-center p-4 border-b border-border hover:bg-secondary/50 h-full min-w-[600px]",
-                                                view === 'business'
-                                                    ? "grid-cols-[40px_100px_1fr_100px_80px_70px_60px_70px]"
-                                                    : "grid-cols-[40px_100px_1fr_100px_80px]"
+                                        {/* Desktop Table Row */}
+                                        <div className={cn(
+                                            "hidden md:grid p-4 border-b border-border text-sm min-w-[600px]",
+                                            view === 'business'
+                                                ? (deletionMode ? "grid-cols-[40px_40px_100px_1fr_100px_80px_70px_60px_70px]" : "grid-cols-[40px_100px_1fr_100px_80px_70px_60px_70px]")
+                                                : (deletionMode ? "grid-cols-[40px_40px_100px_1fr_100px_80px]" : "grid-cols-[40px_100px_1fr_100px_80px]")
+                                        )}>
+                                            {/* Checkbox */}
+                                            {deletionMode && (
+                                                <div className="flex items-center justify-center">
+                                                    <Checkbox
+                                                        checked={selectedIds.has(product.id)}
+                                                        onCheckedChange={() => toggleSelection(product.id)}
+                                                    />
+                                                </div>
                                             )}
-                                        >
-                                            <div className="text-center text-muted-foreground">{rowIndex}</div>
+
+                                            {/* Row Number */}
+                                            <div className="text-center text-muted-foreground">
+                                                {rowIndex}
+                                            </div>
                                             <div className="text-center font-mono text-foreground truncate">{product.clean_code}</div>
                                             <div className="text-foreground truncate">{product.description}</div>
                                             <div className="text-center text-muted-foreground truncate">{product.brand}</div>
@@ -687,7 +1076,7 @@ export function ListingsManagementPage({ onNavigate }: ListingsManagementPagePro
                                 );
                             })}
                         </div>
-                    </div >
+                    </div>
 
                     {/* Product Count Footer */}
                     {
@@ -706,8 +1095,36 @@ export function ListingsManagementPage({ onNavigate }: ListingsManagementPagePro
                             </div>
                         )
                     }
-                </Card >
-            </div >
-        </div >
+                </Card>
+            </div>
+
+            {/* Export Preview Dialog */}
+            <ExportPreviewDialog
+                open={showExportPreview}
+                onClose={() => setShowExportPreview(false)}
+                format={exportPreviewFormat}
+                view={view}
+                products={products}
+                totalProducts={totalProducts}
+                headerContent={exportConfig.manualHeader.content}
+                onExport={exportPreviewFormat === 'pdf' ? handleExportPDFConfirmed : handleExportExcelConfirmed}
+                onPrint={async () => {
+                    const viewMode = view === 'business' ? 'enterprise' : 'client';
+                    const exportSearch = searchInput.trim() ? debouncedSearch : undefined;
+                    await exportForPrintMutation.mutateAsync({
+                        filename: exportConfig.filename,
+                        header_mode: 'manual',
+                        manual_header: {
+                            content: exportConfig.manualHeader.content,
+                            alignment: exportConfig.manualHeader.alignment,
+                        },
+                        view_mode: viewMode,
+                        sort_by: mapSortBy(sortBy),
+                        search: exportSearch,
+                        format: 'pdf',
+                    });
+                }}
+            />
+        </div>
     );
 }

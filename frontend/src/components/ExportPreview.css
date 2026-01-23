@@ -1,0 +1,54 @@
+/**
+ * Export Preview Styles
+ * 
+ * Styles for the export preview dialog.
+ * Note: Print functionality now opens PDF in new tab,
+ * so @media print rules are not needed.
+ */
+
+/* Preview Dialog Styles */
+.export-preview-dialog {
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+}
+
+.export-preview-content {
+    background: white !important;
+    color: black !important;
+}
+
+.export-preview-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.export-preview-table th,
+.export-preview-table td {
+    border: 1px solid #ddd;
+    padding: 8px;
+}
+
+.export-preview-table th {
+    background-color: #f5f5f5;
+    font-weight: 600;
+}
+
+.export-header {
+    font-size: 1.25rem;
+    font-weight: bold;
+}
+
+/* Dark mode adjustments for preview */
+.dark .export-preview-content {
+    background: #1f2937 !important;
+    color: #f9fafb !important;
+}
+
+.dark .export-preview-table th {
+    background-color: #374151;
+}
+
+.dark .export-preview-table th,
+.dark .export-preview-table td {
+    border-color: #4b5563;
+}

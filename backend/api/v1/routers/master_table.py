@@ -59,6 +59,43 @@ class UpdateFinalPriceRequest(BaseModel):
     final_price: Decimal = Field(..., gt=0)
 
 
+class BulkUpdateMarginRequest(BaseModel):
+    """Bulk margin update request."""
+    margin_percentage: Decimal = Field(..., ge=-100, le=1000)
+    product_ids: Optional[List[int]] = None  # None = apply to all filtered products
+    search: Optional[str] = None  # Apply to products matching search filter
+
+
+class BulkRenameRequest(BaseModel):
+    """Bulk rename (find & replace) request."""
+    target_text: str
+    replacement_text: str
+    product_ids: Optional[List[int]] = None
+    search: Optional[str] = None
+    field: Literal['description', 'brand'] = 'description'
+
+
+class BulkDeleteRequest(BaseModel):
+    """Bulk delete request."""
+    product_ids: List[int] = Field(..., min_items=1)
+
+
+class RestoreProductsRequest(BaseModel):
+    """Restore products request for undo/redo."""
+    products: List[dict]  # List of product data to restore
+
+
+class UpdateProductRequest(BaseModel):
+    """Update individual product fields."""
+    clean_code: Optional[str] = None
+    description: Optional[str] = None
+    brand: Optional[str] = None
+    price_usd: Optional[Decimal] = Field(None, gt=0)
+
+
+
+
+
 class PriceStatsResponse(BaseModel):
     """Statistics for heatmap percentile calculation."""
     min_price: Decimal
@@ -90,6 +127,7 @@ class ExportConfigRequest(BaseModel):
     template_file: Optional[TemplateFileConfig] = None
     view_mode: Literal['enterprise', 'client'] = 'enterprise'
     sort_by: Literal['index', 'alphabetical', 'brand', 'description', 'price'] = 'alphabetical'
+    search: Optional[str] = None  # Search filter for context-aware export
     brand_filter: Optional[str] = None
     review_status_filter: Optional[Literal['pending', 'confirmed', 'rejected']] = None
     format: Literal['excel', 'pdf'] = 'excel'
@@ -103,6 +141,7 @@ async def get_master_products(
     search: Optional[str] = Query(None, min_length=1, max_length=100),
     brand_filter: Optional[str] = None,
     review_status_filter: Optional[str] = Query(None, regex="^(pending|confirmed|rejected)$"),
+    list_id: Optional[int] = Query(None, description="Filter by source list ID"),
     page: int = Query(1, ge=1),
     limit: int = Query(200, ge=1, le=500),
     user_id: int = Depends(get_current_user_id),
@@ -116,11 +155,16 @@ async def get_master_products(
     - sort_by: Sort order (alphabetical default)
     - brand_filter: Filter by brand name
     - review_status_filter: Filter by review status
+    - list_id: Filter by source list (for Products page)
     """
     # Base query - filter by user's lists
     query = db.query(MasterProduct).join(
         PriceList, MasterProduct.source_list_id == PriceList.id
     ).filter(PriceList.user_id == user_id)
+    
+    # Apply list filter if provided (for Products page)
+    if list_id is not None:
+        query = query.filter(MasterProduct.source_list_id == list_id)
     
     # Apply search filter (searches code, description, and brand)
     if search:
@@ -304,6 +348,57 @@ async def update_final_price(
     return {"status": "success", "margin_percentage": product.margin_percentage}
 
 
+@router.patch("/{product_id}")
+async def update_product(
+    product_id: int,
+    request: UpdateProductRequest,
+    user_id: int = Depends(get_current_user_id),
+    db: Session = Depends(get_db)
+):
+    """
+    Update individual product fields (code, description, brand, price).
+    
+    Used by Products page for inline editing.
+    """
+    # Verify product belongs to user
+    product = db.query(MasterProduct).join(
+        PriceList, MasterProduct.source_list_id == PriceList.id
+    ).filter(
+        MasterProduct.id == product_id,
+        PriceList.user_id == user_id
+    ).first()
+    
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    
+    # Update fields if provided
+    if request.clean_code is not None:
+        product.clean_code = request.clean_code
+    if request.description is not None:
+        product.description = request.description
+    if request.brand is not None:
+        product.brand = request.brand
+    if request.price_usd is not None:
+        product.price_usd = request.price_usd
+        # Recalculate final_price if margin exists
+        if product.margin_percentage:
+            margin_multiplier = 1 + (product.margin_percentage / 100)
+            product.final_price = product.price_usd * margin_multiplier
+    
+    db.commit()
+    db.refresh(product)
+    
+    logger.info(
+        "product_updated",
+        extra={
+            "product_id": product_id,
+            "user_id": user_id
+        }
+    )
+    
+    return {"status": "success", "product": product}
+
+
 @router.patch("/{product_id}/review-status")
 async def update_review_status(
     product_id: int,
@@ -349,6 +444,302 @@ async def update_review_status(
     )
     
     return {"status": "success"}
+
+
+@router.post("/bulk-margin")
+async def bulk_update_margin(
+    request: BulkUpdateMarginRequest,
+    user_id: int = Depends(get_current_user_id),
+    db: Session = Depends(get_db)
+):
+    """
+    Bulk update margin percentage for multiple products.
+    
+    Supports two modes:
+    - Specific products: Pass product_ids list
+    - Filtered products: Pass search filter (applies to all matching products)
+    
+    Returns count of updated products and their IDs for undo support.
+    """
+    # Build base query
+    query = db.query(MasterProduct).join(
+        PriceList, MasterProduct.source_list_id == PriceList.id
+    ).filter(PriceList.user_id == user_id)
+    
+    # Apply filters
+    if request.product_ids:
+        # Update specific products
+        query = query.filter(MasterProduct.id.in_(request.product_ids))
+    elif request.search:
+        # Update products matching search
+        search_term = f"%{request.search.lower()}%"
+        query = query.filter(
+            (func.lower(MasterProduct.clean_code).like(search_term)) |
+            (func.lower(MasterProduct.description).like(search_term)) |
+            (func.lower(MasterProduct.brand).like(search_term))
+        )
+    
+    # Get products to update
+    products = query.all()
+    
+    if not products:
+        raise HTTPException(status_code=404, detail="No products found matching criteria")
+    
+    # Store previous values for undo support
+    previous_values = [
+        {
+            "id": p.id,
+            "margin_percentage": float(p.margin_percentage) if p.margin_percentage else None,
+            "final_price": float(p.final_price) if p.final_price else None
+        }
+        for p in products
+    ]
+    
+    # Update all products
+    updated_ids = []
+    for product in products:
+        product.margin_percentage = request.margin_percentage
+        # Recalculate final price
+        margin_multiplier = 1 + (request.margin_percentage / 100)
+        product.final_price = product.price_usd * margin_multiplier
+        updated_ids.append(product.id)
+    
+    db.commit()
+    
+    logger.info(
+        "bulk_margin_updated",
+        extra={
+            "count": len(updated_ids),
+            "margin": float(request.margin_percentage),
+            "user_id": user_id
+        }
+    )
+    
+    return {
+        "status": "success",
+        "updated_count": len(updated_ids),
+        "updated_ids": updated_ids,
+        "previous_values": previous_values  # For undo support
+    }
+
+
+@router.post("/bulk-rename")
+async def bulk_rename(
+    request: BulkRenameRequest,
+    user_id: int = Depends(get_current_user_id),
+    db: Session = Depends(get_db)
+):
+    """
+    Bulk rename (find & replace) in product descriptions or brands.
+    
+    Returns count of updated products and their previous values for undo support.
+    """
+    # Build base query
+    query = db.query(MasterProduct).join(
+        PriceList, MasterProduct.source_list_id == PriceList.id
+    ).filter(PriceList.user_id == user_id)
+    
+    # Apply filters
+    if request.product_ids:
+        query = query.filter(MasterProduct.id.in_(request.product_ids))
+    elif request.search:
+        search_term = f"%{request.search.lower()}%"
+        query = query.filter(
+            (func.lower(MasterProduct.clean_code).like(search_term)) |
+            (func.lower(MasterProduct.description).like(search_term)) |
+            (func.lower(MasterProduct.brand).like(search_term))
+        )
+    
+    products = query.all()
+    
+    if not products:
+        raise HTTPException(status_code=404, detail="No products found matching criteria")
+    
+    # Store previous values and perform replacement
+    previous_values = []
+    updated_ids = []
+    
+    for product in products:
+        field_value = getattr(product, request.field)
+        if field_value and request.target_text in field_value:
+            previous_values.append({
+                "id": product.id,
+                request.field: field_value
+            })
+            # Perform replacement
+            new_value = field_value.replace(request.target_text, request.replacement_text)
+            setattr(product, request.field, new_value)
+            updated_ids.append(product.id)
+    
+    db.commit()
+    
+    logger.info(
+        "bulk_rename_completed",
+        extra={
+            "count": len(updated_ids),
+            "field": request.field,
+            "user_id": user_id
+        }
+    )
+    
+    return {
+        "status": "success",
+        "updated_count": len(updated_ids),
+        "updated_ids": updated_ids,
+        "previous_values": previous_values
+    }
+
+
+@router.post("/bulk-delete")
+async def bulk_delete(
+    request: BulkDeleteRequest,
+    user_id: int = Depends(get_current_user_id),
+    db: Session = Depends(get_db)
+):
+    """
+    Bulk delete products.
+    
+    Returns deleted product data for undo support.
+    """
+    # Verify all products belong to user
+    products = db.query(MasterProduct).join(
+        PriceList, MasterProduct.source_list_id == PriceList.id
+    ).filter(
+        MasterProduct.id.in_(request.product_ids),
+        PriceList.user_id == user_id
+    ).all()
+    
+    if len(products) != len(request.product_ids):
+        raise HTTPException(status_code=404, detail="Some products not found or access denied")
+    
+    # Store complete product data for undo
+    deleted_products = [
+        {
+            "id": p.id,
+            "clean_code": p.clean_code,
+            "description": p.description,
+            "brand": p.brand,
+            "price_usd": float(p.price_usd),
+            "margin_percentage": float(p.margin_percentage) if p.margin_percentage else None,
+            "final_price": float(p.final_price) if p.final_price else None,
+            "source_list_id": p.source_list_id,
+            "original_list_name": p.original_list_name,
+            "index_number": p.index_number
+        }
+        for p in products
+    ]
+    
+    # Delete products
+    for product in products:
+        db.delete(product)
+    
+    db.commit()
+    
+    logger.info(
+        "bulk_delete_completed",
+        extra={
+            "count": len(products),
+            "user_id": user_id
+        }
+    )
+    
+    return {
+        "status": "success",
+        "deleted_count": len(products),
+        "deleted_products": deleted_products  # For undo support
+    }
+
+
+@router.post("/restore")
+async def restore_products(
+    request: RestoreProductsRequest,
+    user_id: int = Depends(get_current_user_id),
+    db: Session = Depends(get_db)
+):
+    """
+    Restore products to previous state (for undo/redo).
+    
+    Accepts a list of product data dictionaries and updates/creates products accordingly.
+    Used by undo/redo system to revert changes.
+    """
+    restored_count = 0
+    
+    for product_data in request.products:
+        product_id = product_data.get('id')
+        product = None
+        
+        if product_id:
+            # Check if product exists
+            product = db.query(MasterProduct).join(
+                PriceList, MasterProduct.source_list_id == PriceList.id
+            ).filter(
+                MasterProduct.id == product_id,
+                PriceList.user_id == user_id
+            ).first()
+            
+        if product:
+            # Update existing product
+            for key, value in product_data.items():
+                if key != 'id' and hasattr(product, key):
+                    setattr(product, key, value)
+            restored_count += 1
+        else:
+            # Recreate deleted product OR create new one
+            # Verify source list belongs to user
+            source_list_id = product_data.get('source_list_id')
+            if source_list_id:
+                source_list = db.query(PriceList).filter(
+                    PriceList.id == source_list_id,
+                    PriceList.user_id == user_id
+                ).first()
+                
+                if source_list:
+                    # Filter out 'id' if we want to let DB assign new one, OR keep it if we want to force restore
+                    # For SQLite/Postgres auto-increment, it's often safer to drop the old ID and let it assign a new one
+                    # UNLESS we need to maintain relationships. For now, let's drop ID to avoid conflicts if sequence advanced.
+                    # BUT wait, the frontend might rely on the old ID for subsequent undos? 
+                    # Actually, if we give it a new ID, we break the "redo" if the redo logic uses the old ID.
+                    # Use case: Delete (ID 10) -> Undo (Restores as ID 50) -> Redo (Tries to delete ID 10... fail).
+                    # So we SHOULD try to keep the ID if possible, or we need to update history.
+                    # Updating history from backend is hard.
+                    # Let's try to pass the ID to the constructor. SQLite usually allows inserting specific ID if not taken.
+                    
+                    # Create data dict excluding id if we want new ID, or including it if we want to force it.
+                    # Let's try to include 'id' first.
+                    create_data = product_data.copy()
+                    
+                    # Ensure original_list_name is present (fix for IntegrityError)
+                    if 'original_list_name' not in create_data or create_data['original_list_name'] is None:
+                        create_data['original_list_name'] = source_list.name
+                    
+                    # if 'id' in create_data: del create_data['id'] # Uncomment to force new ID
+                    
+                    new_product = MasterProduct(**create_data)
+                    
+                    # Merge it into session. 
+                    # Note: If we force ID, we must ensure it doesn't conflict. 
+                    # Since it was just deleted, it shouldn't conflict unless re-used.
+                    
+                    db.add(new_product)
+                    restored_count += 1
+    
+    db.commit()
+    
+    logger.info(
+        "products_restored",
+        extra={
+            "count": restored_count,
+            "user_id": user_id
+        }
+    )
+    
+    return {
+        "status": "success",
+        "restored_count": restored_count
+    }
+
+
+
 
 
 @router.get("/export")
@@ -437,6 +828,15 @@ async def export_master_products_advanced(
         query = db.query(MasterProduct).join(
             PriceList, MasterProduct.source_list_id == PriceList.id
         ).filter(PriceList.user_id == user_id)
+        
+        # Apply search filter (same logic as get_master_products)
+        if config.search:
+            search_term = f"%{config.search.lower()}%"
+            query = query.filter(
+                (func.lower(MasterProduct.clean_code).like(search_term)) |
+                (func.lower(MasterProduct.description).like(search_term)) |
+                (func.lower(MasterProduct.brand).like(search_term))
+            )
         
         if config.brand_filter:
             query = query.filter(

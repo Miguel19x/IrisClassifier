@@ -462,6 +462,7 @@ export function useInfiniteMasterProducts(params?: {
     search?: string;
     brandFilter?: string;
     reviewStatusFilter?: string;
+    listId?: number;
 }) {
     return useInfiniteQuery({
         queryKey: ['master-products-infinite', params],
@@ -481,6 +482,7 @@ export function useInfiniteMasterProducts(params?: {
             if (params?.search) queryParams.append('search', params.search);
             if (params?.brandFilter) queryParams.append('brand_filter', params.brandFilter);
             if (params?.reviewStatusFilter) queryParams.append('review_status_filter', params.reviewStatusFilter);
+            if (params?.listId !== undefined) queryParams.append('list_id', params.listId.toString());
 
             const response = await api.get<{
                 products: MasterProduct[];
@@ -527,8 +529,49 @@ export function useUpdateMargin() {
             });
             return response.data;
         },
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['master-products-infinite'] });
+        // Optimistic update - instantly update the cache before API responds
+        onMutate: async ({ productId, margin_percentage }) => {
+            // Cancel any outgoing refetches to avoid overwriting optimistic update
+            await queryClient.cancelQueries({ queryKey: ['master-products-infinite'] });
+
+            // Snapshot the previous value for potential rollback
+            const previousData = queryClient.getQueryData(['master-products-infinite']);
+
+            // Optimistically update the cache
+            queryClient.setQueriesData(
+                { queryKey: ['master-products-infinite'] },
+                (oldData: any) => {
+                    if (!oldData?.pages) return oldData;
+                    return {
+                        ...oldData,
+                        pages: oldData.pages.map((page: any) => ({
+                            ...page,
+                            products: page.products.map((p: any) =>
+                                p.id === productId
+                                    ? {
+                                        ...p,
+                                        margin_percentage,
+                                        final_price: p.price_usd * (1 + margin_percentage / 100)
+                                    }
+                                    : p
+                            )
+                        }))
+                    };
+                }
+            );
+
+            return { previousData };
+        },
+        // Rollback on error
+        onError: (_err, _variables, context) => {
+            if (context?.previousData) {
+                queryClient.setQueryData(['master-products-infinite'], context.previousData);
+            }
+        },
+        // Only refetch if needed (minimal sync)
+        onSettled: () => {
+            // Optionally refetch to ensure consistency, but debounced/delayed
+            // queryClient.invalidateQueries({ queryKey: ['master-products-infinite'] });
         },
     });
 }
@@ -546,7 +589,148 @@ export function useUpdateFinalPrice() {
             });
             return response.data;
         },
-        onSuccess: () => {
+        onMutate: async ({ productId, final_price }) => {
+            await queryClient.cancelQueries({ queryKey: ['master-products-infinite'] });
+            const previousData = queryClient.getQueryData(['master-products-infinite']);
+
+            queryClient.setQueriesData(
+                { queryKey: ['master-products-infinite'] },
+                (oldData: any) => {
+                    if (!oldData?.pages) return oldData;
+                    return {
+                        ...oldData,
+                        pages: oldData.pages.map((page: any) => ({
+                            ...page,
+                            products: page.products.map((p: any) => {
+                                if (p.id !== productId) return p;
+                                const margin = p.price_usd > 0
+                                    ? ((final_price - p.price_usd) / p.price_usd) * 100
+                                    : 0;
+                                return { ...p, final_price, margin_percentage: margin };
+                            })
+                        }))
+                    };
+                }
+            );
+            return { previousData };
+        },
+        onError: (_err, _variables, context) => {
+            if (context?.previousData) {
+                queryClient.setQueryData(['master-products-infinite'], context.previousData);
+            }
+        },
+        onSettled: () => { },
+    });
+}
+
+export function useUpdateMasterProduct() {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: async ({ productId, data }: {
+            productId: number;
+            data: {
+                clean_code?: string;
+                description?: string;
+                brand?: string;
+                price_usd?: number;
+            }
+        }) => {
+            if (MOCK_MODE) {
+                return { status: 'success' };
+            }
+            const response = await api.patch(`/master-products/${productId}`, data);
+            return response.data;
+        },
+        onMutate: async ({ productId, data }) => {
+            await queryClient.cancelQueries({ queryKey: ['master-products-infinite'] });
+            const previousData = queryClient.getQueryData(['master-products-infinite']);
+
+            queryClient.setQueriesData(
+                { queryKey: ['master-products-infinite'] },
+                (oldData: any) => {
+                    if (!oldData?.pages) return oldData;
+                    return {
+                        ...oldData,
+                        pages: oldData.pages.map((page: any) => ({
+                            ...page,
+                            products: page.products.map((p: any) =>
+                                p.id === productId ? { ...p, ...data } : p
+                            )
+                        }))
+                    };
+                }
+            );
+            return { previousData };
+        },
+        onError: (_err, _variables, context) => {
+            if (context?.previousData) {
+                queryClient.setQueryData(['master-products-infinite'], context.previousData);
+            }
+        },
+        onSettled: () => { },
+    });
+}
+
+export function useBulkUpdateMargin() {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: async ({
+            margin_percentage,
+            productIds,
+            search
+        }: {
+            margin_percentage: number;
+            productIds?: number[];
+            search?: string;
+        }) => {
+            if (MOCK_MODE) {
+                return { status: 'success', updated_count: 0, updated_ids: [], previous_values: [] };
+            }
+            const response = await api.post('/master-products/bulk-margin', {
+                margin_percentage,
+                product_ids: productIds,
+                search
+            });
+            return response.data;
+        },
+        onMutate: async ({ margin_percentage, productIds }) => {
+            await queryClient.cancelQueries({ queryKey: ['master-products-infinite'] });
+            const previousData = queryClient.getQueryData(['master-products-infinite']);
+
+            // Optimistically update all products (or only those in productIds if specified)
+            queryClient.setQueriesData(
+                { queryKey: ['master-products-infinite'] },
+                (oldData: any) => {
+                    if (!oldData?.pages) return oldData;
+                    return {
+                        ...oldData,
+                        pages: oldData.pages.map((page: any) => ({
+                            ...page,
+                            products: page.products.map((p: any) => {
+                                // If productIds specified, only update those; otherwise update all
+                                const shouldUpdate = !productIds || productIds.includes(p.id);
+                                if (!shouldUpdate) return p;
+                                return {
+                                    ...p,
+                                    margin_percentage,
+                                    final_price: p.price_usd * (1 + margin_percentage / 100)
+                                };
+                            })
+                        }))
+                    };
+                }
+            );
+            return { previousData };
+        },
+        onError: (_err, _variables, context) => {
+            if (context?.previousData) {
+                queryClient.setQueryData(['master-products-infinite'], context.previousData);
+            }
+        },
+        onSettled: () => {
+            // Background sync to ensure complete data after optimistic update
             queryClient.invalidateQueries({ queryKey: ['master-products-infinite'] });
         },
     });
@@ -567,6 +751,158 @@ export function useUpdateReviewStatus() {
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['master-products'] });
+        },
+    });
+}
+
+export function useBulkRename() {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: async ({
+            target_text,
+            replacement_text,
+            productIds,
+            search,
+            field = 'description'
+        }: {
+            target_text: string;
+            replacement_text: string;
+            productIds?: number[];
+            search?: string;
+            field?: 'description' | 'brand';
+        }) => {
+            if (MOCK_MODE) {
+                return { status: 'success', updated_count: 0, updated_ids: [], previous_values: [] };
+            }
+            const response = await api.post('/master-products/bulk-rename', {
+                target_text,
+                replacement_text,
+                product_ids: productIds,
+                search,
+                field
+            });
+            return response.data;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['master-products-infinite'] });
+        },
+    });
+}
+
+export function useBulkDelete() {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: async ({ productIds }: { productIds: number[] }) => {
+            if (MOCK_MODE) {
+                return { status: 'success', deleted_count: 0, deleted_products: [] };
+            }
+            const response = await api.post('/master-products/bulk-delete', {
+                product_ids: productIds
+            });
+            return response.data;
+        },
+        onMutate: async ({ productIds }) => {
+            await queryClient.cancelQueries({ queryKey: ['master-products-infinite'] });
+            const previousData = queryClient.getQueryData(['master-products-infinite']);
+
+            // Optimistically remove deleted products from cache
+            queryClient.setQueriesData(
+                { queryKey: ['master-products-infinite'] },
+                (oldData: any) => {
+                    if (!oldData?.pages) return oldData;
+                    return {
+                        ...oldData,
+                        pages: oldData.pages.map((page: any) => ({
+                            ...page,
+                            products: page.products.filter((p: any) => !productIds.includes(p.id))
+                        }))
+                    };
+                }
+            );
+            return { previousData };
+        },
+        onError: (_err, _variables, context) => {
+            if (context?.previousData) {
+                queryClient.setQueryData(['master-products-infinite'], context.previousData);
+            }
+        },
+        onSettled: () => {
+            // Background sync to ensure complete data after optimistic update
+            queryClient.invalidateQueries({ queryKey: ['master-products-infinite'] });
+        },
+    });
+}
+
+export function useRestoreProducts() {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: async ({ products }: { products: any[] }) => {
+            if (MOCK_MODE) {
+                return { status: 'success', restored_count: 0 };
+            }
+            const response = await api.post('/master-products/restore', {
+                products
+            });
+            return response.data;
+        },
+        onMutate: async ({ products }) => {
+            await queryClient.cancelQueries({ queryKey: ['master-products-infinite'] });
+            const previousData = queryClient.getQueryData(['master-products-infinite']);
+
+            // Optimistically add restored products back to cache
+            // For restoring deleted products or reverting changes
+            queryClient.setQueriesData(
+                { queryKey: ['master-products-infinite'] },
+                (oldData: any) => {
+                    if (!oldData?.pages) return oldData;
+
+                    // Create a map of existing product IDs
+                    const existingIds = new Set<number>();
+                    oldData.pages.forEach((page: any) => {
+                        page.products.forEach((p: any) => existingIds.add(p.id));
+                    });
+
+                    // Update existing products or prepare new ones to add
+                    const productsToAdd: any[] = [];
+                    const productsMap = new Map(products.map(p => [p.id, p]));
+
+                    const updatedPages = oldData.pages.map((page: any) => ({
+                        ...page,
+                        products: page.products.map((p: any) =>
+                            productsMap.has(p.id) ? { ...p, ...productsMap.get(p.id) } : p
+                        )
+                    }));
+
+                    // Add products that don't exist (were deleted) to first page
+                    products.forEach(p => {
+                        if (!existingIds.has(p.id)) {
+                            productsToAdd.push(p);
+                        }
+                    });
+
+                    if (productsToAdd.length > 0 && updatedPages.length > 0) {
+                        updatedPages[0] = {
+                            ...updatedPages[0],
+                            products: [...productsToAdd, ...updatedPages[0].products]
+                        };
+                    }
+
+                    return { ...oldData, pages: updatedPages };
+                }
+            );
+            return { previousData };
+        },
+        onError: (_err, _variables, context) => {
+            if (context?.previousData) {
+                queryClient.setQueryData(['master-products-infinite'], context.previousData);
+            }
+        },
+        onSettled: () => {
+            // Background sync to ensure complete data after optimistic update
+            queryClient.invalidateQueries({ queryKey: ['master-products-infinite'] });
         },
     });
 }
@@ -668,6 +1004,7 @@ interface AdvancedExportConfig {
     template_file?: TemplateFileConfig;
     view_mode: 'enterprise' | 'client';
     sort_by?: 'index' | 'alphabetical' | 'brand' | 'description' | 'price';
+    search?: string;  // Search filter for context-aware export
     brand_filter?: string;
     review_status_filter?: 'pending' | 'confirmed' | 'rejected';
     format: 'excel' | 'pdf';
@@ -725,3 +1062,49 @@ export function useExportAdvanced() {
         },
     });
 }
+
+/**
+ * Export PDF and open in new tab for printing.
+ * This ensures ALL products are included (from database, not virtualized list).
+ */
+export function useExportAdvancedForPrint() {
+    return useMutation({
+        mutationFn: async (config: AdvancedExportConfig) => {
+            if (MOCK_MODE) {
+                alert('Print preview not available in offline mode');
+                return;
+            }
+
+            // Force PDF format for printing
+            const printConfig = { ...config, format: 'pdf' as const };
+
+            const response = await api.post('/master-products/export-advanced', printConfig, {
+                responseType: 'blob'
+            });
+
+            // Create blob URL and open in new tab
+            const blob = new Blob([response.data], { type: 'application/pdf' });
+            const url = window.URL.createObjectURL(blob);
+
+            // Open in new tab for printing
+            const printWindow = window.open(url, '_blank');
+
+            if (printWindow) {
+                // Some browsers need a delay before revoking the URL
+                printWindow.onload = () => {
+                    // Optionally trigger print dialog automatically
+                    // printWindow.print();
+                };
+            } else {
+                // Popup blocked - fall back to direct navigation
+                window.location.href = url;
+            }
+
+            // Clean up URL after a delay
+            setTimeout(() => {
+                window.URL.revokeObjectURL(url);
+            }, 60000); // Keep URL valid for 1 minute
+        },
+    });
+}
+
