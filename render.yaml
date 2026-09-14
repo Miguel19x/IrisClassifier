@@ -1,0 +1,37 @@
+services:
+  # Backend API Service
+  - type: web
+    name: irisclassifier-api
+    env: python
+    region: oregon
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      # Turso Database
+      - key: TURSO_DATABASE_URL
+        sync: false
+      - key: TURSO_AUTH_TOKEN
+        sync: false
+      
+      # Gemini AI
+      - key: GEMINI_API_KEY
+        sync: false
+      
+      # Security
+      - key: SECRET_KEY
+        generateValue: true
+      
+      # CORS
+      - key: CORS_ORIGINS
+        value: https://irisclassifier.vercel.app,http://localhost:5173
+      
+      # Logging
+      - key: LOG_LEVEL
+        value: INFO
+      - key: JSON_LOGS
+        value: true
+    
+    healthCheckPath: /health
+    
+    autoDeploy: true

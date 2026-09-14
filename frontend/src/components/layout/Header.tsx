@@ -1,8 +1,11 @@
 import { useState } from "react";
-import { Menu, X, LogOut, FileText, Package, ClipboardList } from "lucide-react";
+import { Menu, X, LogOut, FileText, Package, ClipboardList, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { cn } from "@/lib/utils";
+import { isDemoMode } from "@/config/demoMode";
+import { mockDataService } from "@/services/mockData";
+import { toast } from "sonner";
 
 type Page = 'lists' | 'products' | 'management';
 
@@ -71,6 +74,28 @@ export function Header({ userEmail = "usuario@ejemplo.com", currentPage, onNavig
 
                     {/* User section */}
                     <div className="hidden md:flex items-center gap-3">
+                        {isDemoMode() && (
+                            <div className="flex items-center gap-2">
+                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-500 border border-emerald-500/20">
+                                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-ping" />
+                                    <span>Demo Vercel</span>
+                                </span>
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => {
+                                        mockDataService.resetToDefaults();
+                                        toast.success('Catálogo demo restaurado con éxito');
+                                        setTimeout(() => window.location.reload(), 500);
+                                    }}
+                                    title="Restaurar catálogo inicial de repuestos"
+                                    className="h-8 px-2 text-xs gap-1 border-border/60 text-muted-foreground hover:text-foreground cursor-pointer"
+                                >
+                                    <RotateCcw className="h-3 w-3" />
+                                    <span className="hidden lg:inline">Reiniciar Datos</span>
+                                </Button>
+                            </div>
+                        )}
                         <ThemeToggle />
                         <span className="text-sm text-muted-foreground truncate max-w-[150px]">{userEmail}</span>
                         <Button variant="ghost" size="sm" onClick={onLogout} className="gap-2">
@@ -123,6 +148,21 @@ export function Header({ userEmail = "usuario@ejemplo.com", currentPage, onNavig
                         );
                     })}
                     <div className="border-t border-border/50 pt-4 mt-2 space-y-2">
+                        {isDemoMode() && (
+                            <div className="flex items-center justify-between px-4 py-1">
+                                <span className="text-xs text-emerald-500 font-medium">🟢 Demo Vercel Activa</span>
+                                <button
+                                    onClick={() => {
+                                        mockDataService.resetToDefaults();
+                                        toast.success('Catálogo demo restaurado con éxito');
+                                        setTimeout(() => window.location.reload(), 500);
+                                    }}
+                                    className="text-xs text-muted-foreground hover:text-foreground underline"
+                                >
+                                    Reiniciar datos
+                                </button>
+                            </div>
+                        )}
                         <div className="flex items-center justify-between px-4">
                             <p className="text-sm text-muted-foreground truncate">{userEmail}</p>
                             <ThemeToggle />

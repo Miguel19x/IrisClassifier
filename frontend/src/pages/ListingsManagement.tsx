@@ -4,9 +4,9 @@
  * Diseño premium con vista empresarial/cliente, heatmap y exportación.
  */
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
+import { PredictiveSearchInput } from '@/components/PredictiveSearchInput';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import {
-    Search,
     SortAsc,
     FileText,
     FileSpreadsheet,
@@ -574,16 +574,12 @@ export function ListingsManagementPage({ onNavigate: _onNavigate }: ListingsMana
                 <Card variant="glass" className="mb-6">
                     <CardContent className="p-4">
                         <div className="flex flex-col lg:flex-row lg:items-center gap-3">
-                            {/* Search Bar */}
-                            <div className="relative flex-1">
-                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                <Input
-                                    placeholder="Buscar productos..."
-                                    value={searchInput}
-                                    onChange={(e) => setSearchInput(e.target.value)}
-                                    className="pl-10"
-                                />
-                            </div>
+                            {/* Search Bar with Markov Predictions */}
+                            <PredictiveSearchInput
+                                value={searchInput}
+                                onChange={(val) => setSearchInput(val)}
+                                placeholder="Buscar productos..."
+                            />
 
                             {/* Sort Dropdown */}
                             <Select value={sortBy} onValueChange={(v: 'alpha' | 'brand' | 'price') => setSortBy(v)}>

@@ -1,173 +1,320 @@
 /**
- * Offline sync hook.
+ * Enhanced Offline Sync Hook with SQLite Integration
  * 
- * Manages offline data synchronization with background sync.
+ * Manages bidirectional synchronization between local SQLite and cloud backend.
+ * Implements conflict resolution with last-write-wins strategy.
  */
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Network } from '@capacitor/network';
-import { useFilesystem } from './useFilesystem';
+import { localDB } from '../services/localDatabase';
+import api from '../services/api';
 
-interface SyncItem {
-    id: string;
-    type: 'catalog' | 'product' | 'price_range';
-    action: 'create' | 'update' | 'delete';
-    data: any;
-    timestamp: number;
+interface SyncStatus {
+    isOnline: boolean;
+    syncing: boolean;
+    lastSyncTime: string | null;
+    pendingChanges: number;
+    error: string | null;
 }
 
 export function useOfflineSync() {
-    const [isOnline, setIsOnline] = useState(true);
-    const [syncQueue, setSyncQueue] = useState<SyncItem[]>([]);
-    const [syncing, setSyncing] = useState(false);
-    const { writeFile, readFile } = useFilesystem();
+    const [status, setStatus] = useState<SyncStatus>({
+        isOnline: true,
+        syncing: false,
+        lastSyncTime: null,
+        pendingChanges: 0,
+        error: null,
+    });
 
-    const SYNC_QUEUE_FILE = 'sync_queue.json';
+    // Initialize database on mount
+    useEffect(() => {
+        initializeDatabase();
+    }, []);
 
     // Monitor network status
     useEffect(() => {
+        let isMounted = true;
         let listenerHandle: any = null;
 
         const setupListener = async () => {
-            const status = await Network.getStatus();
-            setIsOnline(status.connected);
+            const networkStatus = await Network.getStatus();
+            if (!isMounted) return;
+            setStatus(prev => ({ ...prev, isOnline: networkStatus.connected }));
 
-            // Await the listener registration to get the PluginListenerHandle
-            listenerHandle = await Network.addListener('networkStatusChange', (status) => {
-                setIsOnline(status.connected);
+            const handle = await Network.addListener('networkStatusChange', (networkStatus) => {
+                if (!isMounted) return;
+                setStatus(prev => ({ ...prev, isOnline: networkStatus.connected }));
 
                 // Auto-sync when coming online
-                if (status.connected && syncQueue.length > 0) {
-                    syncPendingChanges();
+                if (networkStatus.connected) {
+                    syncWithCloud();
                 }
             });
+
+            if (!isMounted) {
+                handle.remove();
+            } else {
+                listenerHandle = handle;
+            }
         };
 
         setupListener();
 
         return () => {
+            isMounted = false;
             if (listenerHandle) {
                 listenerHandle.remove();
             }
         };
-    }, [syncQueue]);
-
-    // Load sync queue from storage
-    useEffect(() => {
-        loadSyncQueue();
     }, []);
 
-    const loadSyncQueue = async () => {
-        const data = await readFile(SYNC_QUEUE_FILE);
-        if (data) {
-            try {
-                const queue = JSON.parse(data);
-                setSyncQueue(queue);
-            } catch (err) {
-                console.error('Failed to parse sync queue:', err);
-            }
-        }
-    };
+    // Update pending changes count periodically
+    useEffect(() => {
+        const interval = setInterval(async () => {
+            await updatePendingCount();
+        }, 5000); // Check every 5 seconds
 
-    const saveSyncQueue = async (queue: SyncItem[]) => {
-        await writeFile(SYNC_QUEUE_FILE, JSON.stringify(queue));
-    };
+        return () => clearInterval(interval);
+    }, []);
 
-    const addToQueue = async (item: Omit<SyncItem, 'id' | 'timestamp'>) => {
-        const newItem: SyncItem = {
-            ...item,
-            id: `${Date.now()}_${Math.random()}`,
-            timestamp: Date.now(),
-        };
-
-        const newQueue = [...syncQueue, newItem];
-        setSyncQueue(newQueue);
-        await saveSyncQueue(newQueue);
-
-        // Try to sync immediately if online
-        if (isOnline) {
-            syncPendingChanges();
-        }
-    };
-
-    const syncPendingChanges = async () => {
-        if (syncing || syncQueue.length === 0 || !isOnline) {
-            return;
-        }
-
-        setSyncing(true);
-
+    /**
+     * Initialize local database
+     */
+    const initializeDatabase = async () => {
         try {
-            const successfulIds: string[] = [];
+            await localDB.initialize();
+            const lastSync = await localDB.getLastSyncTime();
+            setStatus(prev => ({ ...prev, lastSyncTime: lastSync }));
+            await updatePendingCount();
+        } catch (error) {
+            console.error('Failed to initialize database:', error);
+            setStatus(prev => ({
+                ...prev,
+                error: 'Failed to initialize local database'
+            }));
+        }
+    };
 
-            for (const item of syncQueue) {
-                try {
-                    // Send to API based on type and action
-                    const endpoint = getEndpoint(item.type);
-                    const response = await fetch(endpoint, {
-                        method: getMethod(item.action),
-                        headers: {
-                            'Content-Type': 'application/json',
-                        },
-                        body: item.action !== 'delete' ? JSON.stringify(item.data) : undefined,
-                    });
+    /**
+     * Update count of pending changes
+     */
+    const updatePendingCount = async () => {
+        try {
+            const changes = await localDB.getUnsyncedChanges();
+            const count =
+                changes.products.length +
+                changes.priceLists.length +
+                changes.masterProducts.length;
 
-                    if (response.ok) {
-                        successfulIds.push(item.id);
-                    }
-                } catch (err) {
-                    console.error(`Failed to sync item ${item.id}:`, err);
+            setStatus(prev => ({ ...prev, pendingChanges: count }));
+        } catch (error) {
+            console.error('Failed to get pending changes:', error);
+        }
+    };
+
+    /**
+     * Push local changes to cloud
+     */
+    const pushToCloud = async (): Promise<void> => {
+        try {
+            const changes = await localDB.getUnsyncedChanges();
+
+            // Push products
+            if (changes.products.length > 0) {
+                const response = await api.post('/sync/push/products', {
+                    changes: changes.products,
+                });
+
+                if (response.data.success) {
+                    const syncedIds = changes.products.map(p => p.id);
+                    await localDB.markAsSynced('products', syncedIds);
                 }
             }
 
-            // Remove successful items from queue
-            const newQueue = syncQueue.filter((item) => !successfulIds.includes(item.id));
-            setSyncQueue(newQueue);
-            await saveSyncQueue(newQueue);
-        } finally {
-            setSyncing(false);
+            // Push price lists
+            if (changes.priceLists.length > 0) {
+                const response = await api.post('/sync/push/lists', {
+                    changes: changes.priceLists,
+                });
+
+                if (response.data.success) {
+                    const syncedIds = changes.priceLists.map(l => l.id);
+                    await localDB.markAsSynced('price_lists', syncedIds);
+                }
+            }
+
+            // Push master products
+            if (changes.masterProducts.length > 0) {
+                const response = await api.post('/sync/push/master-products', {
+                    changes: changes.masterProducts,
+                });
+
+                if (response.data.success) {
+                    const syncedIds = changes.masterProducts.map(m => m.id);
+                    await localDB.markAsSynced('master_products', syncedIds);
+                }
+            }
+        } catch (error) {
+            console.error('Failed to push changes to cloud:', error);
+            throw error;
         }
     };
 
-    const getEndpoint = (type: string): string => {
-        const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+    /**
+     * Pull changes from cloud
+     */
+    const pullFromCloud = async (): Promise<void> => {
+        try {
+            const lastSync = await localDB.getLastSyncTime();
+            const since = lastSync || new Date(0).toISOString();
 
-        switch (type) {
-            case 'catalog':
-                return `${baseUrl}/api/v1/catalogs`;
-            case 'product':
-                return `${baseUrl}/api/v1/products`;
-            case 'price_range':
-                return `${baseUrl}/api/v1/price-ranges`;
-            default:
-                return baseUrl;
+            // Pull products
+            const productsResponse = await api.get('/sync/pull/products', {
+                params: { since },
+            });
+
+            for (const product of productsResponse.data.changes || []) {
+                if (product.deleted) {
+                    await localDB.deleteProduct(product.id);
+                } else {
+                    // Check if exists locally
+                    const existing = await localDB.getProducts();
+                    const found = existing.find(p => p.id === product.id);
+
+                    if (found) {
+                        // Conflict resolution: last-write-wins
+                        if (new Date(product.updated_at) > new Date(found.updated_at)) {
+                            await localDB.updateProduct(product.id, {
+                                ...product,
+                                synced: true,
+                            });
+                        }
+                    } else {
+                        await localDB.createProduct({
+                            ...product,
+                            synced: true,
+                        });
+                    }
+                }
+            }
+
+            // Pull price lists
+            const listsResponse = await api.get('/sync/pull/lists', {
+                params: { since },
+            });
+
+            for (const list of listsResponse.data.changes || []) {
+                if (list.deleted) {
+                    await localDB.deletePriceList(list.id);
+                } else {
+                    const existing = await localDB.getPriceLists();
+                    const found = existing.find(l => l.id === list.id);
+
+                    if (found) {
+                        if (new Date(list.updated_at) > new Date(found.updated_at)) {
+                            await localDB.updatePriceList(list.id, {
+                                ...list,
+                                synced: true,
+                            });
+                        }
+                    } else {
+                        await localDB.createPriceList({
+                            ...list,
+                            synced: true,
+                        });
+                    }
+                }
+            }
+
+            // Pull master products
+            const masterResponse = await api.get('/sync/pull/master-products', {
+                params: { since },
+            });
+
+            for (const master of masterResponse.data.changes || []) {
+                if (master.deleted) {
+                    await localDB.deleteMasterProduct(master.id);
+                } else {
+                    const existing = await localDB.getMasterProducts();
+                    const found = existing.find(m => m.id === master.id);
+
+                    if (found) {
+                        if (new Date(master.updated_at) > new Date(found.updated_at)) {
+                            await localDB.updateMasterProduct(master.id, {
+                                ...master,
+                                synced: true,
+                            });
+                        }
+                    } else {
+                        await localDB.createMasterProduct({
+                            ...master,
+                            synced: true,
+                        });
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('Failed to pull changes from cloud:', error);
+            throw error;
         }
     };
 
-    const getMethod = (action: string): string => {
-        switch (action) {
-            case 'create':
-                return 'POST';
-            case 'update':
-                return 'PATCH';
-            case 'delete':
-                return 'DELETE';
-            default:
-                return 'GET';
+    /**
+     * Bidirectional sync with cloud
+     */
+    const syncWithCloud = useCallback(async (): Promise<void> => {
+        if (status.syncing || !status.isOnline) {
+            return;
         }
+
+        setStatus(prev => ({ ...prev, syncing: true, error: null }));
+
+        try {
+            // First pull from cloud (to get latest changes)
+            await pullFromCloud();
+
+            // Then push local changes
+            await pushToCloud();
+
+            // Update last sync time
+            const now = new Date().toISOString();
+            await localDB.updateLastSyncTime(now);
+
+            setStatus(prev => ({
+                ...prev,
+                syncing: false,
+                lastSyncTime: now,
+                pendingChanges: 0,
+            }));
+        } catch (error) {
+            console.error('Sync failed:', error);
+            setStatus(prev => ({
+                ...prev,
+                syncing: false,
+                error: 'Sync failed. Will retry automatically.',
+            }));
+        }
+    }, [status.syncing, status.isOnline]);
+
+    /**
+     * Force manual sync
+     */
+    const forceSync = async (): Promise<void> => {
+        await syncWithCloud();
     };
 
-    const clearQueue = async () => {
-        setSyncQueue([]);
-        await saveSyncQueue([]);
+    /**
+     * Clear sync error
+     */
+    const clearError = () => {
+        setStatus(prev => ({ ...prev, error: null }));
     };
 
     return {
-        isOnline,
-        syncQueue,
-        syncing,
-        addToQueue,
-        syncPendingChanges,
-        clearQueue,
-        pendingCount: syncQueue.length,
+        ...status,
+        syncWithCloud,
+        forceSync,
+        clearError,
+        localDB, // Expose database for direct access
     };
 }

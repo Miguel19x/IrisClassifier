@@ -6,9 +6,7 @@
 import { useQuery, useMutation, useQueryClient, useInfiniteQuery, keepPreviousData } from '@tanstack/react-query';
 import api from './api';
 import { mockDataService } from './mockData';
-
-// Check if running in mock mode
-const MOCK_MODE = import.meta.env.VITE_MOCK_API === 'true';
+import { isDemoMode } from '../config/demoMode';
 
 // ============================================
 // TYPES
@@ -76,7 +74,7 @@ export function useLists(status?: string) {
     return useQuery({
         queryKey: ['lists', status],
         queryFn: async () => {
-            if (MOCK_MODE) {
+            if (isDemoMode()) {
                 return mockDataService.getLists(status);
             }
             const params = status ? { status } : {};
@@ -90,7 +88,7 @@ export function useList(id: number) {
     return useQuery({
         queryKey: ['list', id],
         queryFn: async () => {
-            if (MOCK_MODE) {
+            if (isDemoMode()) {
                 return mockDataService.getList(id);
             }
             const response = await api.get<PriceList>(`/lists/${id}`);
@@ -105,7 +103,7 @@ export function useUploadList() {
 
     return useMutation({
         mutationFn: async (file: File) => {
-            if (MOCK_MODE) {
+            if (isDemoMode()) {
                 return mockDataService.uploadList(file);
             }
             const formData = new FormData();
@@ -130,7 +128,7 @@ export function useDeleteList() {
 
     return useMutation({
         mutationFn: async (id: number) => {
-            if (MOCK_MODE) {
+            if (isDemoMode()) {
                 await mockDataService.deleteList(id);
                 return;
             }
@@ -154,7 +152,7 @@ export function useProducts(listId?: number) {
     return useQuery({
         queryKey: ['products', listId],
         queryFn: async () => {
-            if (MOCK_MODE) {
+            if (isDemoMode()) {
                 return mockDataService.getProducts({ list_id: listId });
             }
             const params: Record<string, any> = { page_size: 20000 };
@@ -177,7 +175,7 @@ export function useInfiniteProducts(listId?: number, params?: {
     return useInfiniteQuery({
         queryKey: ['products-infinite', listId, params],
         queryFn: async ({ pageParam = 1 }) => {
-            if (MOCK_MODE) {
+            if (isDemoMode()) {
                 const result = await mockDataService.getProducts({
                     list_id: listId,
                     page: pageParam,
@@ -218,7 +216,7 @@ export function useUpdateProduct() {
 
     return useMutation({
         mutationFn: async ({ listId, productId, data }: { listId: number; productId: number; data: Partial<Product> }) => {
-            if (MOCK_MODE) {
+            if (isDemoMode()) {
                 return mockDataService.updateProduct(listId, productId, data);
             }
             const response = await api.patch<Product>(`/lists/${listId}/products/${productId}`, data);
@@ -235,7 +233,7 @@ export function useVerifyProduct() {
 
     return useMutation({
         mutationFn: async ({ listId, productId }: { listId: number; productId: number }) => {
-            if (MOCK_MODE) {
+            if (isDemoMode()) {
                 return mockDataService.updateProduct(listId, productId, { status: 'verified' } as any);
             }
             const response = await api.patch<Product>(`/lists/${listId}/products/${productId}`, { status: 'verified' });
@@ -255,7 +253,7 @@ export function usePriceRanges() {
     return useQuery({
         queryKey: ['price-ranges'],
         queryFn: async () => {
-            if (MOCK_MODE) {
+            if (isDemoMode()) {
                 return mockDataService.getPriceRanges();
             }
             const response = await api.get<PriceRange[]>('/price-ranges');
@@ -269,7 +267,7 @@ export function useCreatePriceRange() {
 
     return useMutation({
         mutationFn: async (data: Omit<PriceRange, 'id' | 'user_id' | 'is_default' | 'created_at'>) => {
-            if (MOCK_MODE) {
+            if (isDemoMode()) {
                 return mockDataService.createPriceRange(data as any);
             }
             const response = await api.post<PriceRange>('/price-ranges', data);
@@ -286,7 +284,7 @@ export function useUpdatePriceRange() {
 
     return useMutation({
         mutationFn: async ({ id, data }: { id: number; data: Partial<PriceRange> }) => {
-            if (MOCK_MODE) {
+            if (isDemoMode()) {
                 return mockDataService.updatePriceRange(id, data);
             }
             const response = await api.put<PriceRange>(`/price-ranges/${id}`, data);
@@ -303,7 +301,7 @@ export function useDeletePriceRange() {
 
     return useMutation({
         mutationFn: async (id: number) => {
-            if (MOCK_MODE) {
+            if (isDemoMode()) {
                 await mockDataService.deletePriceRange(id);
                 return;
             }
@@ -322,7 +320,7 @@ export function useDeletePriceRange() {
 export function useCompareLists() {
     return useMutation({
         mutationFn: async (data: { list_ids: number[]; use_ai?: boolean }) => {
-            if (MOCK_MODE) {
+            if (isDemoMode()) {
                 return mockDataService.compareLists(data);
             }
             const response = await api.post('/compare', data);
@@ -339,7 +337,7 @@ export function useMixedListings() {
     return useQuery({
         queryKey: ['mixed-listings'],
         queryFn: async () => {
-            if (MOCK_MODE) {
+            if (isDemoMode()) {
                 return mockDataService.getMixedListings();
             }
             const response = await api.get('/mixed-listings');
@@ -359,7 +357,7 @@ export function useCreateMixedListing() {
             use_best_prices?: boolean;
             price_range_ids?: number[];
         }) => {
-            if (MOCK_MODE) {
+            if (isDemoMode()) {
                 return mockDataService.createMixedListing(data);
             }
             const response = await api.post('/mixed-listings', data);
@@ -379,7 +377,7 @@ export function useMixedListingProducts(listingId: number, filters?: {
     return useQuery({
         queryKey: ['mixed-listing-products', listingId, filters],
         queryFn: async () => {
-            if (MOCK_MODE) {
+            if (isDemoMode()) {
                 return mockDataService.getMixedListingProducts(listingId, filters);
             }
             const params = new URLSearchParams();
@@ -399,7 +397,7 @@ export function useDeleteMixedListing() {
 
     return useMutation({
         mutationFn: async (id: number) => {
-            if (MOCK_MODE) {
+            if (isDemoMode()) {
                 await mockDataService.deleteMixedListing(id);
                 return;
             }
@@ -428,7 +426,7 @@ export function useMasterProducts(params?: {
     return useQuery({
         queryKey: ['master-products', params],
         queryFn: async () => {
-            if (MOCK_MODE) {
+            if (isDemoMode()) {
                 return mockDataService.getMasterProducts(params);
             }
             const queryParams = new URLSearchParams();
@@ -467,7 +465,7 @@ export function useInfiniteMasterProducts(params?: {
     return useInfiniteQuery({
         queryKey: ['master-products-infinite', params],
         queryFn: async ({ pageParam = 1 }) => {
-            if (MOCK_MODE) {
+            if (isDemoMode()) {
                 return mockDataService.getMasterProducts({
                     ...params,
                     page: pageParam,
@@ -507,7 +505,7 @@ export function usePriceStats() {
     return useQuery({
         queryKey: ['price-stats'],
         queryFn: async () => {
-            if (MOCK_MODE) {
+            if (isDemoMode()) {
                 return mockDataService.getPriceStats();
             }
             const response = await api.get<PriceStats>('/master-products/stats');
@@ -521,7 +519,7 @@ export function useUpdateMargin() {
 
     return useMutation({
         mutationFn: async ({ productId, margin_percentage }: { productId: number; margin_percentage: number }) => {
-            if (MOCK_MODE) {
+            if (isDemoMode()) {
                 return mockDataService.updateMargin(productId, margin_percentage);
             }
             const response = await api.patch(`/master-products/${productId}/margin`, {
@@ -581,7 +579,7 @@ export function useUpdateFinalPrice() {
 
     return useMutation({
         mutationFn: async ({ productId, final_price }: { productId: number; final_price: number }) => {
-            if (MOCK_MODE) {
+            if (isDemoMode()) {
                 return mockDataService.updateFinalPrice(productId, final_price);
             }
             const response = await api.patch(`/master-products/${productId}/final-price`, {
@@ -636,8 +634,8 @@ export function useUpdateMasterProduct() {
                 price_usd?: number;
             }
         }) => {
-            if (MOCK_MODE) {
-                return { status: 'success' };
+            if (isDemoMode()) {
+                return mockDataService.updateMasterProduct(productId, data);
             }
             const response = await api.patch(`/master-products/${productId}`, data);
             return response.data;
@@ -685,8 +683,8 @@ export function useBulkUpdateMargin() {
             productIds?: number[];
             search?: string;
         }) => {
-            if (MOCK_MODE) {
-                return { status: 'success', updated_count: 0, updated_ids: [], previous_values: [] };
+            if (isDemoMode()) {
+                return mockDataService.bulkUpdateMargin(margin_percentage, productIds, search);
             }
             const response = await api.post('/master-products/bulk-margin', {
                 margin_percentage,
@@ -741,7 +739,7 @@ export function useUpdateReviewStatus() {
 
     return useMutation({
         mutationFn: async ({ productId, review_status }: { productId: number; review_status: 'pending' | 'confirmed' | 'rejected' }) => {
-            if (MOCK_MODE) {
+            if (isDemoMode()) {
                 return mockDataService.updateReviewStatus(productId, review_status);
             }
             const response = await api.patch(`/master-products/${productId}/review-status`, {
@@ -772,8 +770,8 @@ export function useBulkRename() {
             search?: string;
             field?: 'description' | 'brand';
         }) => {
-            if (MOCK_MODE) {
-                return { status: 'success', updated_count: 0, updated_ids: [], previous_values: [] };
+            if (isDemoMode()) {
+                return mockDataService.bulkRename(target_text, replacement_text, productIds, search, field);
             }
             const response = await api.post('/master-products/bulk-rename', {
                 target_text,
@@ -795,8 +793,8 @@ export function useBulkDelete() {
 
     return useMutation({
         mutationFn: async ({ productIds }: { productIds: number[] }) => {
-            if (MOCK_MODE) {
-                return { status: 'success', deleted_count: 0, deleted_products: [] };
+            if (isDemoMode()) {
+                return mockDataService.bulkDelete(productIds);
             }
             const response = await api.post('/master-products/bulk-delete', {
                 product_ids: productIds
@@ -840,8 +838,8 @@ export function useRestoreProducts() {
 
     return useMutation({
         mutationFn: async ({ products }: { products: any[] }) => {
-            if (MOCK_MODE) {
-                return { status: 'success', restored_count: 0 };
+            if (isDemoMode()) {
+                return mockDataService.restoreProducts(products);
             }
             const response = await api.post('/master-products/restore', {
                 products
@@ -919,18 +917,8 @@ interface ExportParams {
 export function useExportPDF() {
     return useMutation({
         mutationFn: async ({ viewMode, customTitle = 'Listado de Productos' }: ExportParams) => {
-            if (MOCK_MODE) {
-                // Mock PDF export - create a simple text file as placeholder
-                const content = `Mock PDF Export\n\nTitle: ${customTitle}\nView Mode: ${viewMode}\n\nThis is a mock export in offline mode.`;
-                const blob = new Blob([content], { type: 'text/plain' });
-                const url = window.URL.createObjectURL(blob);
-                const link = document.createElement('a');
-                link.href = url;
-                link.setAttribute('download', `${customTitle.replace(/\s+/g, '_')}_${Date.now()}.txt`);
-                document.body.appendChild(link);
-                link.click();
-                link.remove();
-                window.URL.revokeObjectURL(url);
+            if (isDemoMode()) {
+                await mockDataService.exportMockPDF(customTitle, viewMode);
                 return;
             }
             const title = encodeURIComponent(customTitle);
@@ -952,18 +940,8 @@ export function useExportPDF() {
 export function useExportExcel() {
     return useMutation({
         mutationFn: async ({ viewMode, customTitle = 'Listado de Productos' }: ExportParams) => {
-            if (MOCK_MODE) {
-                // Mock Excel export - create a simple text file as placeholder
-                const content = `Mock Excel Export\n\nTitle: ${customTitle}\nView Mode: ${viewMode}\n\nThis is a mock export in offline mode.`;
-                const blob = new Blob([content], { type: 'text/plain' });
-                const url = window.URL.createObjectURL(blob);
-                const link = document.createElement('a');
-                link.href = url;
-                link.setAttribute('download', `${customTitle.replace(/\s+/g, '_')}_${Date.now()}.txt`);
-                document.body.appendChild(link);
-                link.click();
-                link.remove();
-                window.URL.revokeObjectURL(url);
+            if (isDemoMode()) {
+                await mockDataService.exportMockExcel(customTitle, viewMode);
                 return;
             }
             const title = encodeURIComponent(customTitle);
@@ -1013,18 +991,12 @@ interface AdvancedExportConfig {
 export function useExportAdvanced() {
     return useMutation({
         mutationFn: async (config: AdvancedExportConfig) => {
-            if (MOCK_MODE) {
-                // Mock export
-                const content = `Mock Advanced Export\n\nConfig: ${JSON.stringify(config, null, 2)}`;
-                const blob = new Blob([content], { type: 'text/plain' });
-                const url = window.URL.createObjectURL(blob);
-                const link = document.createElement('a');
-                link.href = url;
-                link.setAttribute('download', `${config.filename}_${Date.now()}.txt`);
-                document.body.appendChild(link);
-                link.click();
-                link.remove();
-                window.URL.revokeObjectURL(url);
+            if (isDemoMode()) {
+                if (config.format === 'pdf') {
+                    await mockDataService.exportMockPDF(config.filename || 'Listado_Productos', config.view_mode);
+                } else {
+                    await mockDataService.exportMockExcel(config.filename || 'Listado_Productos', config.view_mode);
+                }
                 return;
             }
 
@@ -1070,8 +1042,8 @@ export function useExportAdvanced() {
 export function useExportAdvancedForPrint() {
     return useMutation({
         mutationFn: async (config: AdvancedExportConfig) => {
-            if (MOCK_MODE) {
-                alert('Print preview not available in offline mode');
+            if (isDemoMode()) {
+                await mockDataService.exportMockPDF(config.filename || 'Impresion_Catalogo', config.view_mode);
                 return;
             }
 

@@ -10,6 +10,16 @@ vi.mock('@capacitor/camera', () => ({
         checkPermissions: vi.fn(),
         requestPermissions: vi.fn(),
     },
+    CameraResultType: {
+        DataUrl: 'dataUrl',
+        Base64: 'base64',
+        Uri: 'uri',
+    },
+    CameraSource: {
+        Camera: 'CAMERA',
+        Photos: 'PHOTOS',
+        Prompt: 'PROMPT',
+    },
 }));
 
 describe('useCamera', () => {

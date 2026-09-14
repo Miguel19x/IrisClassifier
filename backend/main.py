@@ -173,9 +173,11 @@ async def root():
 
 
 # Include API routers
-from api.v1.routers import lists, products, price_ranges, upload, export, auth, compare, mixed_listings, progress, master_table
+from api.v1.routers import lists, products, price_ranges, upload, export, auth, compare, mixed_listings, progress, master_table, markov
+from api.routes import sync
 
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Authentication"])
+app.include_router(sync.router, prefix="/api/v1", tags=["Sync"])
 app.include_router(lists.router, prefix="/api/v1", tags=["Lists"])
 app.include_router(products.router, prefix="/api/v1", tags=["Products"])
 app.include_router(price_ranges.router, prefix="/api/v1", tags=["Price Ranges"])
@@ -185,6 +187,7 @@ app.include_router(compare.router, prefix="/api/v1", tags=["Comparison"])
 app.include_router(mixed_listings.router, prefix="/api/v1", tags=["Mixed Listings"])
 app.include_router(progress.router, prefix="/api/v1", tags=["Progress"])
 app.include_router(master_table.router, prefix="/api/v1", tags=["Master Table"])
+app.include_router(markov.router, prefix="/api/v1", tags=["Markov Suggestions"])
 
 
 if __name__ == "__main__":

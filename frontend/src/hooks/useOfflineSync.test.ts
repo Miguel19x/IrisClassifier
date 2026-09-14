@@ -2,8 +2,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
 import { useOfflineSync } from './useOfflineSync';
 import { Network } from '@capacitor/network';
+import { localDB } from '../services/localDatabase';
+import api from '../services/api';
 
-// Mock dependencies
+// Mock Capacitor Network
 vi.mock('@capacitor/network', () => ({
     Network: {
         getStatus: vi.fn(),
@@ -11,177 +13,126 @@ vi.mock('@capacitor/network', () => ({
     },
 }));
 
-vi.mock('./useFilesystem', () => ({
-    useFilesystem: () => ({
-        writeFile: vi.fn().mockResolvedValue(true),
-        readFile: vi.fn().mockResolvedValue(null),
-    }),
+// Mock local database
+vi.mock('../services/localDatabase', () => ({
+    localDB: {
+        initialize: vi.fn().mockResolvedValue(undefined),
+        getLastSyncTime: vi.fn().mockResolvedValue(null),
+        getUnsyncedChanges: vi.fn().mockResolvedValue({
+            products: [],
+            priceLists: [],
+            masterProducts: [],
+        }),
+        updateLastSyncTime: vi.fn().mockResolvedValue(undefined),
+        markAsSynced: vi.fn().mockResolvedValue(undefined),
+        getProducts: vi.fn().mockResolvedValue([]),
+        createProduct: vi.fn().mockResolvedValue(undefined),
+        updateProduct: vi.fn().mockResolvedValue(undefined),
+        deleteProduct: vi.fn().mockResolvedValue(undefined),
+        getPriceLists: vi.fn().mockResolvedValue([]),
+        createPriceList: vi.fn().mockResolvedValue(undefined),
+        updatePriceList: vi.fn().mockResolvedValue(undefined),
+        deletePriceList: vi.fn().mockResolvedValue(undefined),
+        getMasterProducts: vi.fn().mockResolvedValue([]),
+        createMasterProduct: vi.fn().mockResolvedValue(undefined),
+        updateMasterProduct: vi.fn().mockResolvedValue(undefined),
+        deleteMasterProduct: vi.fn().mockResolvedValue(undefined),
+    },
 }));
 
-// Mock fetch
-globalThis.fetch = vi.fn();
+// Mock API client
+vi.mock('../services/api', () => ({
+    default: {
+        get: vi.fn().mockResolvedValue({ data: { changes: [] } }),
+        post: vi.fn().mockResolvedValue({ data: { success: true } }),
+    },
+}));
 
 describe('useOfflineSync', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         vi.mocked(Network.getStatus).mockResolvedValue({ connected: true, connectionType: 'wifi' });
         vi.mocked(Network.addListener).mockResolvedValue({ remove: vi.fn() });
+        vi.mocked(localDB.getLastSyncTime).mockResolvedValue('2026-01-01T00:00:00.000Z');
+        vi.mocked(localDB.getUnsyncedChanges).mockResolvedValue({
+            products: [],
+            priceLists: [],
+            masterProducts: [],
+        });
     });
 
-    it('should initialize with online status', async () => {
+    it('should initialize with network status and lastSyncTime from database', async () => {
         const { result } = renderHook(() => useOfflineSync());
 
         await waitFor(() => {
             expect(result.current.isOnline).toBe(true);
+            expect(result.current.lastSyncTime).toBe('2026-01-01T00:00:00.000Z');
+            expect(result.current.pendingChanges).toBe(0);
+            expect(result.current.syncing).toBe(false);
+            expect(result.current.error).toBeNull();
         });
     });
 
-    it('should initialize with empty sync queue', () => {
-        const { result } = renderHook(() => useOfflineSync());
-
-        expect(result.current.syncQueue).toEqual([]);
-        expect(result.current.pendingCount).toBe(0);
-    });
-
-    it('should add item to queue', async () => {
-        const { result } = renderHook(() => useOfflineSync());
-
-        await act(async () => {
-            await result.current.addToQueue({
-                type: 'catalog',
-                action: 'create',
-                data: { name: 'Test Catalog' },
-            });
+    it('should calculate pending changes correctly', async () => {
+        vi.mocked(localDB.getUnsyncedChanges).mockResolvedValue({
+            products: [{ id: '1' } as any],
+            priceLists: [{ id: '2' } as any],
+            masterProducts: [{ id: '3' } as any],
         });
-
-        expect(result.current.syncQueue.length).toBe(1);
-        expect(result.current.syncQueue[0].type).toBe('catalog');
-        expect(result.current.syncQueue[0].action).toBe('create');
-        expect(result.current.pendingCount).toBe(1);
-    });
-
-    it('should sync items when online', async () => {
-        vi.mocked(globalThis.fetch).mockResolvedValue({
-            ok: true,
-            json: async () => ({}),
-        } as Response);
 
         const { result } = renderHook(() => useOfflineSync());
-
-        // Add item to queue
-        await act(async () => {
-            await result.current.addToQueue({
-                type: 'product',
-                action: 'update',
-                data: { id: 1, name: 'Updated Product' },
-            });
-        });
-
-        // Sync should be triggered automatically
-        await waitFor(() => {
-            expect(globalThis.fetch).toHaveBeenCalled();
-        });
-    });
-
-    it('should not sync when offline', async () => {
-        vi.mocked(Network.getStatus).mockResolvedValue({ connected: false, connectionType: 'none' });
-
-        const { result } = renderHook(() => useOfflineSync());
-
-        await act(async () => {
-            await result.current.addToQueue({
-                type: 'catalog',
-                action: 'create',
-                data: { name: 'Test' },
-            });
-        });
-
-        // Should not call fetch when offline
-        expect(globalThis.fetch).not.toHaveBeenCalled();
-        expect(result.current.syncQueue.length).toBe(1);
-    });
-
-    it('should handle sync errors gracefully', async () => {
-        vi.mocked(globalThis.fetch).mockRejectedValue(new Error('Network error'));
-
-        const { result } = renderHook(() => useOfflineSync());
-
-        await act(async () => {
-            await result.current.addToQueue({
-                type: 'catalog',
-                action: 'create',
-                data: { name: 'Test' },
-            });
-        });
-
-        // Item should remain in queue after failed sync
-        await waitFor(() => {
-            expect(result.current.syncQueue.length).toBe(1);
-        });
-    });
-
-    it('should clear queue', async () => {
-        const { result } = renderHook(() => useOfflineSync());
-
-        // Add items
-        await act(async () => {
-            await result.current.addToQueue({
-                type: 'catalog',
-                action: 'create',
-                data: { name: 'Test 1' },
-            });
-            await result.current.addToQueue({
-                type: 'product',
-                action: 'update',
-                data: { id: 1 },
-            });
-        });
-
-        expect(result.current.syncQueue.length).toBe(2);
-
-        // Clear queue
-        await act(async () => {
-            await result.current.clearQueue();
-        });
-
-        expect(result.current.syncQueue.length).toBe(0);
-        expect(result.current.pendingCount).toBe(0);
-    });
-
-    it('should use correct HTTP method for actions', async () => {
-        vi.mocked(globalThis.fetch).mockResolvedValue({
-            ok: true,
-            json: async () => ({}),
-        } as Response);
-
-        const { result } = renderHook(() => useOfflineSync());
-
-        // Test CREATE -> POST
-        await act(async () => {
-            await result.current.addToQueue({
-                type: 'catalog',
-                action: 'create',
-                data: { name: 'Test' },
-            });
-        });
 
         await waitFor(() => {
-            expect(globalThis.fetch).toHaveBeenCalledWith(
-                expect.any(String),
-                expect.objectContaining({ method: 'POST' })
-            );
+            expect(result.current.pendingChanges).toBe(3);
         });
     });
 
-    it('should cleanup listener on unmount', () => {
+    it('should perform forceSync when triggered', async () => {
+        vi.mocked(api.get).mockResolvedValue({ data: { changes: [] } });
+
+        const { result } = renderHook(() => useOfflineSync());
+
+        await act(async () => {
+            await result.current.forceSync();
+        });
+
+        expect(api.get).toHaveBeenCalledWith('/sync/pull/products', expect.any(Object));
+        expect(api.get).toHaveBeenCalledWith('/sync/pull/lists', expect.any(Object));
+        expect(api.get).toHaveBeenCalledWith('/sync/pull/master-products', expect.any(Object));
+        expect(result.current.syncing).toBe(false);
+    });
+
+    it('should handle sync errors gracefully and allow clearing error', async () => {
+        vi.mocked(api.get).mockRejectedValueOnce(new Error('Network error'));
+
+        const { result } = renderHook(() => useOfflineSync());
+
+        await act(async () => {
+            await result.current.forceSync();
+        });
+
+        expect(result.current.error).toBe('Sync failed. Will retry automatically.');
+
+        act(() => {
+            result.current.clearError();
+        });
+
+        expect(result.current.error).toBeNull();
+    });
+
+    it('should cleanup listener on unmount', async () => {
         const mockRemove = vi.fn();
         vi.mocked(Network.addListener).mockResolvedValue({ remove: mockRemove });
 
         const { unmount } = renderHook(() => useOfflineSync());
 
+        // Wait for setupListener to complete
+        await waitFor(() => {
+            expect(Network.addListener).toHaveBeenCalled();
+        });
+
         unmount();
 
-        // Listener should be removed
         expect(mockRemove).toHaveBeenCalled();
     });
 });

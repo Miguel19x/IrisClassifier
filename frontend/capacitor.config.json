@@ -6,6 +6,14 @@
         "androidScheme": "https"
     },
     "plugins": {
+        "CapacitorSQLite": {
+            "iosDatabaseLocation": "Library/CapacitorDatabase",
+            "iosIsEncryption": false,
+            "androidIsEncryption": false,
+            "androidBiometric": {
+                "biometricAuth": false
+            }
+        },
         "Camera": {
             "permissions": [
                 "camera",

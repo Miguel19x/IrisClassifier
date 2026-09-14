@@ -16,6 +16,11 @@ vi.mock('@capacitor/filesystem', () => ({
         Data: 'DATA',
         Documents: 'DOCUMENTS',
     },
+    Encoding: {
+        UTF8: 'utf8',
+        ASCII: 'ascii',
+        UTF16: 'utf16',
+    },
 }));
 
 describe('useFilesystem', () => {

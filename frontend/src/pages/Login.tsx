@@ -189,6 +189,43 @@ export function LoginPage() {
                                         "Iniciar Sesión"
                                     )}
                                 </Button>
+
+                                <div className="relative my-4">
+                                    <div className="absolute inset-0 flex items-center">
+                                        <div className="w-full border-t border-border/50" />
+                                    </div>
+                                    <div className="relative flex justify-center text-xs uppercase">
+                                        <span className="bg-card px-2 text-muted-foreground">O para evaluación rápida</span>
+                                    </div>
+                                </div>
+
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="lg"
+                                    onClick={async () => {
+                                        setIsLoading(true);
+                                        setError('');
+                                        try {
+                                            await login({ email: 'demo@megaautopartes.com', password: 'demo123' });
+                                        } catch (err) {
+                                            setError((err as Error)?.message || 'Error al entrar en modo demo');
+                                        } finally {
+                                            setIsLoading(false);
+                                        }
+                                    }}
+                                    className="w-full border-primary/40 hover:bg-primary/10 hover:border-primary text-foreground font-semibold flex items-center justify-center gap-2 shadow-sm"
+                                    disabled={isLoading}
+                                >
+                                    <Sparkles className="h-4 w-4 text-primary animate-pulse" />
+                                    <span>Acceso Directo a la Demo (1 Clic)</span>
+                                </Button>
+
+                                <div className="mt-3 p-2.5 rounded-lg bg-primary/5 border border-primary/20 text-center">
+                                    <p className="text-xs text-muted-foreground">
+                                        ✨ Modo Demo preparado para Vercel: simula extracción con IA, catálogo de repuestos, cálculo de márgenes y exportación sin requerir servidor.
+                                    </p>
+                                </div>
                             </form>
 
                             <div className="mt-6 text-center">

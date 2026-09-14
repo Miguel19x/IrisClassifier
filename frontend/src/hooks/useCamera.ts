@@ -20,6 +20,7 @@ export function useCamera() {
                 resultType: CameraResultType.DataUrl,
                 source: CameraSource.Camera,
                 quality: 90,
+                allowEditing: false,
             });
 
             setPhoto(result.dataUrl || null);
@@ -60,6 +61,7 @@ export function useCamera() {
 
     return {
         photo,
+        setPhoto,
         takePhoto,
         pickFromGallery,
         clearPhoto,

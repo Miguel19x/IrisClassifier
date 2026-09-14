@@ -64,7 +64,6 @@ interface ProductsPageProps {
 
 const ROW_HEIGHT_DESKTOP = 56;
 const ROW_HEIGHT_MOBILE_ESTIMATE = 200; // Estimate for initial render, actual height measured dynamically
-const ROW_HEIGHT_MOBILE_EDITING_ESTIMATE = 380; // Estimate for editing mode
 
 // Hook to detect mobile viewport
 function useIsMobile() {

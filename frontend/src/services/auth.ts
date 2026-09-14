@@ -5,9 +5,7 @@
  */
 import { api } from './api';
 import { storage } from './storage';
-
-// Check if running in mock mode
-const MOCK_MODE = import.meta.env.VITE_MOCK_API === 'true';
+import { isDemoMode } from '../config/demoMode';
 
 export interface LoginCredentials {
     email: string;
@@ -35,7 +33,7 @@ export interface AuthResponse {
  */
 export async function login(credentials: LoginCredentials): Promise<User> {
     // Mock mode: simulate login without API
-    if (MOCK_MODE) {
+    if (isDemoMode()) {
         const mockUser: User = {
             id: 1,
             email: credentials.email,
@@ -67,7 +65,7 @@ export async function login(credentials: LoginCredentials): Promise<User> {
  */
 export async function register(data: RegisterData): Promise<User> {
     // Mock mode: simulate registration
-    if (MOCK_MODE) {
+    if (isDemoMode()) {
         return login(data);
     }
 
@@ -91,7 +89,7 @@ export async function logout(): Promise<void> {
  */
 export async function getCurrentUser(): Promise<User> {
     // Mock mode: return user from storage
-    if (MOCK_MODE) {
+    if (isDemoMode()) {
         const user = await storage.getUser();
         if (user) return user;
 
@@ -116,7 +114,7 @@ export async function isAuthenticated(): Promise<boolean> {
     if (!token) return false;
 
     // Mock mode: always authenticated if token exists
-    if (MOCK_MODE) {
+    if (isDemoMode()) {
         return true;
     }
 

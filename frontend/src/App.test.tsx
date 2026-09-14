@@ -1,6 +1,16 @@
-import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi } from 'vitest';
+import { render, screen, waitFor } from '@testing-library/react';
 import App from './App';
+
+// Mock Capacitor Preferences
+vi.mock('@capacitor/preferences', () => ({
+    Preferences: {
+        get: vi.fn().mockResolvedValue({ value: null }),
+        set: vi.fn().mockResolvedValue(undefined),
+        remove: vi.fn().mockResolvedValue(undefined),
+        clear: vi.fn().mockResolvedValue(undefined),
+    },
+}));
 
 describe('App Component', () => {
     it('should render without crashing', () => {
@@ -8,15 +18,18 @@ describe('App Component', () => {
         expect(document.body).toBeTruthy();
     });
 
-    it('should render the app title', () => {
+    it('should render the app title after initial auth check', async () => {
         render(<App />);
-        const titleElement = screen.getByText(/IrisClassifier/i);
-        expect(titleElement).toBeInTheDocument();
+        await waitFor(() => {
+            const titleElements = screen.getAllByText(/IrisClassifier/i);
+            expect(titleElements.length).toBeGreaterThan(0);
+        });
     });
 
-    it('should have main container', () => {
+    it('should render the container and auth form', async () => {
         const { container } = render(<App />);
-        const mainElement = container.querySelector('main') || container.querySelector('.app');
-        expect(mainElement).toBeTruthy();
+        await waitFor(() => {
+            expect(container.querySelector('form') || container.querySelector('main') || container.querySelector('.min-h-screen')).toBeTruthy();
+        });
     });
 });
