@@ -46,10 +46,17 @@ export default defineConfig({
                         '@radix-ui/react-tooltip',
                     ],
                     'vendor-icons': ['lucide-react'],
+                    'vendor-pdf': ['pdf-lib'],
+                    'vendor-editor': [
+                        '@tiptap/react',
+                        '@tiptap/starter-kit',
+                        '@tiptap/extension-text-align',
+                        '@tiptap/extension-underline',
+                    ],
                 },
             },
         },
-        chunkSizeWarningLimit: 600, // Increase limit for vendor chunks
+        chunkSizeWarningLimit: 1000, // Increase limit to 1000 kB
     },
     test: {
         globals: true,
